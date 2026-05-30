@@ -1,6 +1,7 @@
 package github.nighter.smartspawner.spawner.gui.storage;
 
 import github.nighter.smartspawner.SmartSpawner;
+import github.nighter.smartspawner.Scheduler;
 import github.nighter.smartspawner.api.events.SpawnerDropAllEvent;
 import github.nighter.smartspawner.api.events.SpawnerTakeAllEvent;
 import github.nighter.smartspawner.language.MessageService;
@@ -924,10 +925,18 @@ public class SpawnerStorageAction implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder(false) instanceof StoragePageHolder holder)) {
+        if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
 
+        Inventory inventory = event.getInventory();
+        Scheduler.runEntityTask(player, () -> handleInventoryClose(inventory));
+    }
+
+    private void handleInventoryClose(Inventory inventory) {
+        if (!(inventory.getHolder(false) instanceof StoragePageHolder holder)) {
+            return;
+        }
 
         SpawnerData spawner = holder.getSpawnerData();
         if (spawner.isStorageDirty()){

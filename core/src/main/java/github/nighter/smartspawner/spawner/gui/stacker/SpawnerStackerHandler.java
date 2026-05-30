@@ -212,7 +212,7 @@ public class SpawnerStackerHandler implements Listener {
         UUID playerId = player.getUniqueId();
 
         // Verify the player is really closing the GUI (not just inventory updates)
-        Scheduler.runTaskLater(() -> {
+        Scheduler.runEntityTaskLater(player, () -> {
             Inventory topInventory = player.getOpenInventory().getTopInventory();
             if (!(topInventory.getHolder(false) instanceof SpawnerStackerHolder)) {
                 // Remove viewer and cancel any pending updates

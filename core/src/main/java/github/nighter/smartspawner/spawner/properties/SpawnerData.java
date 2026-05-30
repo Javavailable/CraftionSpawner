@@ -45,7 +45,7 @@ public class SpawnerData {
     private final AtomicBoolean storageDirty = new AtomicBoolean(false);
 
     // Base values from config (immutable after load)
-    @Getter @Setter
+    @Getter
     private long baseMaxStoredExp;
     @Getter @Setter
     private int baseMaxStoragePages;
