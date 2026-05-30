@@ -41,7 +41,8 @@ import java.util.Optional;
  *           e. Location/main thread: applySellResult() – deposit money, remove items,
  *              update hologram, notify player.
  *           f. onComplete.run():
- *                • Scheduler.runTask → reopenPreviousGui() for the selling player only.
+ *                • Scheduler.runEntityTask(player) → reopenPreviousGui() for the selling player
+ *                  only (player's own region thread — required for openInventory/initMenu).
  *           g. spawner.stopSelling() released in finally.
  *
  *  3. Player clicks CANCEL  →  handleCancel():
@@ -169,9 +170,12 @@ public class SpawnerSellConfirmListener implements Listener {
         // Defers the GUI reopen until the inventory is actually emptied, closing the race
         // window where a storage GUI could be reopened with stale (pre-removal) items.
         Runnable onComplete = () ->
-            // player.openInventory must run on the global/main thread; schedule with runTask
-            // so it is always dispatched correctly on both Paper and Folia.
-            Scheduler.runTask(() -> reopenPreviousGui(player, spawner, previousGui));
+            // player.openInventory() -> ServerPlayer.initMenu() must run on the PLAYER's own
+            // region thread on Folia/Canvas, NOT the global region thread (the sell completes on
+            // the spawner location's thread, which may be a different region). Dispatch via the
+            // player's entity scheduler; on Paper this falls back to the main thread. If the
+            // player logged off mid-sell, the entity task simply never runs.
+            Scheduler.runEntityTask(player, () -> reopenPreviousGui(player, spawner, previousGui));
 
         plugin.getSpawnerSellManager().sellAllItems(player, spawner, onComplete);
     }
