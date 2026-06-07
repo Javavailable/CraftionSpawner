@@ -4,12 +4,14 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import github.nighter.smartspawner.SmartSpawner;
 import github.nighter.smartspawner.commands.clear.ClearSubCommand;
+import github.nighter.smartspawner.commands.config.FolderConfigSubCommand;
 import github.nighter.smartspawner.commands.give.GiveSubCommand;
 import github.nighter.smartspawner.commands.hologram.HologramSubCommand;
 import github.nighter.smartspawner.commands.list.ListSubCommand;
 import github.nighter.smartspawner.commands.near.NearSubCommand;
 import github.nighter.smartspawner.commands.prices.PricesSubCommand;
 import github.nighter.smartspawner.commands.reload.ReloadSubCommand;
+import github.nighter.smartspawner.commands.set.SetSubCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +36,10 @@ public class MainCommand {
                 new HologramSubCommand(plugin),
                 new PricesSubCommand(plugin),
                 new ClearSubCommand(plugin),
-                new NearSubCommand(plugin, plugin.getSpawnerHighlightManager())
+                new NearSubCommand(plugin, plugin.getSpawnerHighlightManager()),
+                new SetSubCommand(plugin),
+                new FolderConfigSubCommand(plugin, FolderConfigSubCommand.ConfigOption.LANGUAGE),
+                new FolderConfigSubCommand(plugin, FolderConfigSubCommand.ConfigOption.GUI_LAYOUT)
         );
     }
 

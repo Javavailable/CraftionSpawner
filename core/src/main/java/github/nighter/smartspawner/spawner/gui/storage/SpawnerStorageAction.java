@@ -1,6 +1,7 @@
 package github.nighter.smartspawner.spawner.gui.storage;
 
 import github.nighter.smartspawner.SmartSpawner;
+import github.nighter.smartspawner.Scheduler;
 import github.nighter.smartspawner.api.events.SpawnerDropAllEvent;
 import github.nighter.smartspawner.api.events.SpawnerTakeAllEvent;
 import github.nighter.smartspawner.language.MessageService;
@@ -88,7 +89,7 @@ public class SpawnerStorageAction implements Listener {
         // which would otherwise allow items to be taken from the virtual inventory twice –
         // once by the player and once by applySellResult.
         if (spawner.isSelling()) {
-            plugin.getMessageService().sendMessage(player, "spawner_selling");
+            plugin.getMessageService().sendMessage(player, "action_in_progress");
             return;
         }
 
@@ -210,7 +211,7 @@ public class SpawnerStorageAction implements Listener {
                 // Pass isSell=true to bypass the inner cooldown check (already checked above)
                 plugin.getSpawnerMenuAction().handleExpBottleClick(player, spawner, true);
             } else {
-                messageService.sendMessage(player, "no_items");
+                messageService.sendMessage(player, "spawner_storage_empty");
             }
             return;
         }
@@ -434,7 +435,7 @@ public class SpawnerStorageAction implements Listener {
         }
 
         if (pageItems.isEmpty()) {
-            messageService.sendMessage(player, "no_items_to_drop");
+            messageService.sendMessage(player, "spawner_storage_empty");
             return;
         }
 
@@ -772,7 +773,7 @@ public class SpawnerStorageAction implements Listener {
         }
 
         if (sourceItems.isEmpty()) {
-            messageService.sendMessage(player, "no_items_to_take");
+            messageService.sendMessage(player, "spawner_storage_empty");
             return;
         }
 
@@ -907,9 +908,7 @@ public class SpawnerStorageAction implements Listener {
         if (!result.anyItemMoved) {
             messageService.sendMessage(player, "inventory_full");
         } else {
-            Map<String, String> placeholders = new HashMap<>();
-            placeholders.put("amount", String.valueOf(result.totalMoved));
-            messageService.sendMessage(player, "take_all_items", placeholders);
+            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
         }
     }
 
@@ -924,10 +923,18 @@ public class SpawnerStorageAction implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder(false) instanceof StoragePageHolder holder)) {
+        if (!(event.getPlayer() instanceof Player player)) {
             return;
         }
 
+        Inventory inventory = event.getInventory();
+        Scheduler.runEntityTask(player, () -> handleInventoryClose(inventory));
+    }
+
+    private void handleInventoryClose(Inventory inventory) {
+        if (!(inventory.getHolder(false) instanceof StoragePageHolder holder)) {
+            return;
+        }
 
         SpawnerData spawner = holder.getSpawnerData();
         if (spawner.isStorageDirty()){

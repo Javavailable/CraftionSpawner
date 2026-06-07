@@ -28,7 +28,7 @@ gui_layout: default
 debug: false
 ```
 
-- `language`: Message language folder to load. Built-in options are `en_US`, `vi_VN`, `de_DE`, `en_US_DonutSMP`, and `en_US_DonutSMP_v2`.
+- `language`: Message language folder to load. Built-in options are `en_US`, `en_US_DonutSMP`, and `en_US_DonutSMP_v2`.
 - `gui_layout`: GUI layout folder to load. Built-in options are `default`, `DonutSMP`, and `DonutSMP_v2`.
 - `debug`: Enables extra console output for troubleshooting.
 
@@ -71,7 +71,8 @@ spawner_break:
     - DIAMOND_PICKAXE
     - NETHERITE_PICKAXE
   durability_loss: 1
-  auto_sell_and_claim_exp_on_break: true
+  sneak_break: true
+  sell_and_xp_break: true
   silk_touch:
     required: true
     level: 1
@@ -81,9 +82,18 @@ spawner_break:
 - `direct_to_inventory`: If `true`, collected spawners go directly into the player's inventory instead of dropping on the ground.
 - `required_tools`: Tools that are allowed to break Smart Spawners.
 - `durability_loss`: Durability removed from the tool per break.
-- `auto_sell_and_claim_exp_on_break`: When a Smart Spawner is fully removed, automatically sells stored items and claims remaining XP. This requires a sell integration and the `smartspawner.sellall` permission.
+- `sneak_break`: Allows sneaking while breaking a Smart Spawner stack to remove up to 64 spawners at once. If `false`, sneaking breaks only one spawner, the same as a normal break.
+- `sell_and_xp_break`: When a Smart Spawner is fully removed, automatically sells stored items and claims remaining XP. This requires a sell integration and the `smartspawner.sellall` permission.
 - `silk_touch.required`: Whether Silk Touch is required to collect the spawner.
 - `silk_touch.level`: Minimum Silk Touch level required.
+
+:::note[Drop Chance and Stack Breaking]
+If `sneak_break` is enabled and a Smart Spawner entity has `drop_chance` configured in `spawners_settings.yml`, sneak stack breaking is blocked for that spawner. Players must break one spawner at a time so drop chance rolls cannot remove a large stack in one action.
+:::
+
+:::note[Drop Chance Bypass]
+Players with `smartspawner.break.bypassdropchance` always receive spawner drops, can use sneak stack breaking, and can open the stacker GUI even when the spawner has `drop_chance` configured.
+:::
 
 ## Natural/Vanilla Spawner Settings
 
@@ -91,12 +101,17 @@ spawner_break:
 natural_spawner:
   breakable: false
   convert_to_smart_spawner: false
+  # drop_chance:
+  #   ZOMBIE: 75.0
+  #   SKELETON: 50.0
+  #   BLAZE: 25.0
   spawn_mobs: true
   protect_from_explosions: false
 ```
 
 - `breakable`: Allows naturally generated vanilla spawners to be broken.
 - `convert_to_smart_spawner`: If `true`, broken natural spawners become Smart Spawners. If `false`, they drop vanilla spawner items.
+- `drop_chance`: Optional entity-specific chance for broken natural spawners to drop a spawner item. Omit the section, or omit an entity, to use the default `100.0`.
 - `spawn_mobs`: Allows natural spawners to spawn mobs.
 - `protect_from_explosions`: Protects natural spawner blocks from explosions.
 
@@ -106,7 +121,7 @@ natural_spawner:
 sell_integration:
   enabled: true
   currency: VAULT
-  coinsengine_currency: coins
+  excellenteconomy_currency: coins
   price_source_mode: SHOP_PRIORITY
   shop_integration:
     enabled: true
@@ -119,8 +134,8 @@ sell_integration:
 These settings configure the sell integration used by Smart Spawner storage.
 
 - `enabled`: Enables selling items from spawner storage.
-- `currency`: Economy backend. Supported values are `VAULT` and `COINSENGINE`.
-- `coinsengine_currency`: CoinsEngine currency name. Only used when `currency` is `COINSENGINE`.
+- `currency`: Economy backend. Supported values are `VAULT` and `EXCELLENTECONOMY`.
+- `excellenteconomy_currency`: ExcellentEconomy currency name. Only used when `currency` is `EXCELLENTECONOMY`.
 - `price_source_mode`: Selects where sell prices come from.
 - `shop_integration.enabled`: Enables shop plugin price lookup.
 - `shop_integration.preferred_plugin`: `auto`, `EconomyShopGUI`, `EconomyShopGUI-Premium`, `ShopGUIPlus`, or `zShop`.
@@ -195,7 +210,6 @@ logging:
   enabled: true
   json_format: false
   console_output: false
-  log_directory: "logs"
   max_log_files: 10
   max_log_size_mb: 10
   log_all_events: false
@@ -220,7 +234,6 @@ logging:
 - `enabled`: Enables file logging for spawner actions.
 - `json_format`: If `false`, logs are human-readable. If `true`, logs are JSON.
 - `console_output`: Also prints log entries to the console.
-- `log_directory`: Folder where log files are stored, relative to the plugin folder.
 - `max_log_files`: Number of rotated log files to keep.
 - `max_log_size_mb`: Maximum size of each log file before rotation.
 - `log_all_events`: If `true`, logs every supported event and ignores `logged_events`.
@@ -346,4 +359,4 @@ Recommended values:
 
 ---
 
-*Last update: May 21, 2026*
+*Last update: June 2, 2026*

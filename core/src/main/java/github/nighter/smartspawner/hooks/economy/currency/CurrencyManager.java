@@ -3,10 +3,12 @@ package github.nighter.smartspawner.hooks.economy.currency;
 import github.nighter.smartspawner.SmartSpawner;
 import lombok.Getter;
 import net.milkbowl.vault.economy.Economy;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
-import org.bukkit.OfflinePlayer;
-import su.nightexpress.coinsengine.api.CoinsEngineAPI;
-import su.nightexpress.coinsengine.api.currency.Currency;
+import su.nightexpress.excellenteconomy.api.ExcellentEconomyAPI;
+import su.nightexpress.excellenteconomy.api.currency.ExcellentCurrency;
+import su.nightexpress.excellenteconomy.api.currency.operation.NotificationTarget;
+import su.nightexpress.excellenteconomy.api.currency.operation.OperationContext;
 
 import java.util.logging.Level;
 
@@ -21,13 +23,17 @@ public class CurrencyManager {
 
     private Economy vaultEconomy;
 
-    private Currency coinsEngineCurrency;
+    private ExcellentEconomyAPI excellentEconomyApi;
+
+    private ExcellentCurrency excellentEconomyCurrency;
+
+    private OperationContext excellentEconomyContext;
 
     @Getter
     private String configuredCurrencyType;
 
     @Getter
-    private String configuredCoinsEngineCurrency;
+    private String configuredExcellentEconomyCurrency;
 
     public CurrencyManager(SmartSpawner plugin) {
         this.plugin = plugin;
@@ -40,7 +46,7 @@ public class CurrencyManager {
 
     private void loadConfiguration() {
         this.configuredCurrencyType = plugin.getConfig().getString("sell_integration.currency", "VAULT");
-        this.configuredCoinsEngineCurrency = plugin.getConfig().getString("sell_integration.coinsengine_currency", "coins");
+        this.configuredExcellentEconomyCurrency = plugin.getConfig().getString("sell_integration.excellenteconomy_currency", "coins");
     }
 
     private void setupCurrency() {
@@ -50,11 +56,11 @@ public class CurrencyManager {
         if (configuredCurrencyType.equalsIgnoreCase("VAULT")) {
             currencyAvailable = setupVaultEconomy();
 
-        } else if (configuredCurrencyType.equalsIgnoreCase("COINSENGINE")) {
-            currencyAvailable = setupCoinsEngineEconomy();
+        } else if (configuredCurrencyType.equalsIgnoreCase("EXCELLENTECONOMY")) {
+            currencyAvailable = setupExcellentEconomy();
 
         } else {
-            plugin.getLogger().warning("Unsupported currency type: " + configuredCurrencyType + ". Currently only VAULT is supported.");
+            plugin.getLogger().warning("Unsupported currency type: " + configuredCurrencyType + ". Supported types: VAULT, EXCELLENTECONOMY.");
             plugin.getLogger().warning("Economy features will be disabled.");
         }
     }
@@ -90,33 +96,47 @@ public class CurrencyManager {
         }
     }
 
-    private boolean setupCoinsEngineEconomy() {
-        // Check if CoinsEngine plugin is available
-        if (plugin.getServer().getPluginManager().getPlugin("CoinsEngine") == null) {
-            plugin.getLogger().warning("CoinsEngine not found! Selling items from spawner will be disabled.");
+    private boolean setupExcellentEconomy() {
+        if (plugin.getServer().getPluginManager().getPlugin("ExcellentEconomy") == null) {
+            plugin.getLogger().warning("ExcellentEconomy not found! Selling items from spawner will be disabled.");
             return false;
         }
 
         try {
-            // Try to retrieve the configured currency
-            coinsEngineCurrency = CoinsEngineAPI.getCurrency(configuredCoinsEngineCurrency);
-
-            if (coinsEngineCurrency == null) {
-                plugin.getLogger().warning("Could not find CoinsEngine currency '" + configuredCoinsEngineCurrency + "'. Selling items from spawner will be disabled.");
+            RegisteredServiceProvider<ExcellentEconomyAPI> provider = plugin.getServer()
+                    .getServicesManager()
+                    .getRegistration(ExcellentEconomyAPI.class);
+            if (provider == null) {
+                plugin.getLogger().warning("No ExcellentEconomy API provider found! Selling items from spawner will be disabled.");
                 return false;
             }
 
-            activeCurrencyProvider = "CoinsEngine (" + coinsEngineCurrency.getName() + ")";
-            plugin.getLogger().info("Successfully connected to CoinsEngine with currency: " + coinsEngineCurrency.getName());
+            excellentEconomyApi = provider.getProvider();
+            if (excellentEconomyApi == null) {
+                plugin.getLogger().warning("Failed to get ExcellentEconomy API provider! Selling items from spawner will be disabled.");
+                return false;
+            }
+
+            excellentEconomyCurrency = excellentEconomyApi.currencyById(configuredExcellentEconomyCurrency).orElse(null);
+            if (excellentEconomyCurrency == null) {
+                plugin.getLogger().warning("Could not find ExcellentEconomy currency '" + configuredExcellentEconomyCurrency + "'. Selling items from spawner will be disabled.");
+                return false;
+            }
+
+            excellentEconomyContext = OperationContext.custom(plugin.getName())
+                    .silentFor(NotificationTarget.USER, NotificationTarget.EXECUTOR, NotificationTarget.CONSOLE_LOGGER);
+
+            activeCurrencyProvider = "ExcellentEconomy (" + excellentEconomyCurrency.getName() + ")";
+            plugin.getLogger().info("Successfully connected to ExcellentEconomy with currency: " + excellentEconomyCurrency.getName());
             return true;
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Error setting up CoinsEngine economy integration", e);
+            plugin.getLogger().log(Level.SEVERE, "Error setting up ExcellentEconomy integration", e);
             return false;
         }
     }
 
-    public boolean deposit(double amount, OfflinePlayer player) {
+    public boolean deposit(double amount, Player player) {
         if (!currencyAvailable) {
             plugin.getLogger().warning("Currency not available for deposit operation.");
             return false;
@@ -130,46 +150,54 @@ public class CurrencyManager {
             return vaultEconomy.depositPlayer(player, amount).transactionSuccess();
         }
 
-        if (configuredCurrencyType.equalsIgnoreCase("COINSENGINE")) {
-            if (coinsEngineCurrency == null) {
-                plugin.getLogger().warning("CoinsEngine currency is not initialized.");
+        if (configuredCurrencyType.equalsIgnoreCase("EXCELLENTECONOMY")) {
+            if (excellentEconomyApi == null || excellentEconomyCurrency == null || excellentEconomyContext == null) {
+                plugin.getLogger().warning("ExcellentEconomy is not initialized.");
                 return false;
             }
 
-            CoinsEngineAPI.addBalance(player.getUniqueId(), coinsEngineCurrency, amount);
-            return true;
+            if (!excellentEconomyApi.canPerformOperations()) {
+                plugin.getLogger().warning("ExcellentEconomy currency operations are currently disabled.");
+                return false;
+            }
+
+            return excellentEconomyApi.deposit(player, excellentEconomyCurrency, amount, excellentEconomyContext);
         }
 
         plugin.getLogger().warning("Unsupported currency type during deposit: " + configuredCurrencyType);
         return false;
     }
 
-    public void withdraw(double amount, OfflinePlayer player) {
+    public boolean withdraw(double amount, Player player) {
         if (!currencyAvailable) {
             plugin.getLogger().warning("Currency not available for withdraw operation.");
-            return;
+            return false;
         }
 
         if (configuredCurrencyType.equalsIgnoreCase("VAULT")) {
             if (vaultEconomy == null) {
                 plugin.getLogger().warning("Vault economy is not initialized.");
-                return;
+                return false;
             }
-            vaultEconomy.withdrawPlayer(player, amount).transactionSuccess();
-            return;
+            return vaultEconomy.withdrawPlayer(player, amount).transactionSuccess();
         }
 
-        if (configuredCurrencyType.equalsIgnoreCase("COINSENGINE")) {
-            if (coinsEngineCurrency == null) {
-                plugin.getLogger().warning("CoinsEngine currency is not initialized.");
-                return;
+        if (configuredCurrencyType.equalsIgnoreCase("EXCELLENTECONOMY")) {
+            if (excellentEconomyApi == null || excellentEconomyCurrency == null || excellentEconomyContext == null) {
+                plugin.getLogger().warning("ExcellentEconomy is not initialized.");
+                return false;
             }
 
-            CoinsEngineAPI.removeBalance(player.getUniqueId(), coinsEngineCurrency, amount);
-            return;
+            if (!excellentEconomyApi.canPerformOperations()) {
+                plugin.getLogger().warning("ExcellentEconomy currency operations are currently disabled.");
+                return false;
+            }
+
+            return excellentEconomyApi.withdraw(player, excellentEconomyCurrency, amount, excellentEconomyContext);
         }
 
         plugin.getLogger().warning("Unsupported currency type during withdraw: " + configuredCurrencyType);
+        return false;
     }
 
     public void reload() {
@@ -183,7 +211,9 @@ public class CurrencyManager {
 
     public void cleanup() {
         vaultEconomy = null;
-        coinsEngineCurrency = null;
+        excellentEconomyApi = null;
+        excellentEconomyCurrency = null;
+        excellentEconomyContext = null;
         currencyAvailable = false;
         activeCurrencyProvider = "None";
     }

@@ -104,7 +104,7 @@ Fully compatible and integrated with **popular economy/shop plugins**, allowing 
 <summary>Economy</summary>
 
 - [Vault](https://www.spigotmc.org/resources/vault.34315/) - Universal economy API
-- [CoinsEngine](https://modrinth.com/plugin/coinsengine) - Multi-currency system
+- [ExcellentEconomy](https://www.spigotmc.org/resources/excellenteconomy.84121/) - Multi-currency system
 
 </details>
 

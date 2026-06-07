@@ -40,12 +40,13 @@ public class ConfigUpdater {
                 Map.entry("database.standalone.pool.leak-detection-threshold", "database.sql.pool.leak-detection-threshold"),
                 Map.entry("custom_economy.enabled", "sell_integration.enabled"),
                 Map.entry("custom_economy.currency", "sell_integration.currency"),
-                Map.entry("custom_economy.coinsengine_currency", "sell_integration.coinsengine_currency"),
+                Map.entry("custom_economy.coinsengine_currency", "sell_integration.excellenteconomy_currency"),
                 Map.entry("custom_economy.price_source_mode", "sell_integration.price_source_mode"),
                 Map.entry("custom_economy.shop_integration.enabled", "sell_integration.shop_integration.enabled"),
                 Map.entry("custom_economy.shop_integration.preferred_plugin", "sell_integration.shop_integration.preferred_plugin"),
                 Map.entry("custom_economy.custom_prices.enabled", "sell_integration.custom_prices.enabled"),
-                Map.entry("custom_economy.custom_prices.default_price", "sell_integration.custom_prices.default_price")
+                Map.entry("custom_economy.custom_prices.default_price", "sell_integration.custom_prices.default_price"),
+                Map.entry("spawner_break.auto_sell_and_claim_exp_on_break", "spawner_break.sell_and_xp_break")
         );
 
         for (Map.Entry<String, String> rename : renames) {
@@ -55,6 +56,17 @@ public class ConfigUpdater {
                 userValues.put(next, userValues.remove(old));
                 plugin.debug("Migrated config path: " + old + " → " + next);
             }
+        }
+
+        if (userValues.containsKey("sell_integration.coinsengine_currency")
+                && !userValues.containsKey("sell_integration.excellenteconomy_currency")) {
+            userValues.put("sell_integration.excellenteconomy_currency", userValues.remove("sell_integration.coinsengine_currency"));
+            plugin.debug("Migrated config path: sell_integration.coinsengine_currency → sell_integration.excellenteconomy_currency");
+        }
+
+        if ("COINSENGINE".equals(userValues.get("sell_integration.currency"))) {
+            userValues.put("sell_integration.currency", "EXCELLENTECONOMY");
+            plugin.getLogger().info("Migrated sell_integration.currency: COINSENGINE → EXCELLENTECONOMY");
         }
 
         // DATABASE → MYSQL mode rename

@@ -1,6 +1,7 @@
 package github.nighter.smartspawner.spawner.properties;
 
 import lombok.Getter;
+import lombok.experimental.Accessors;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
@@ -13,11 +14,10 @@ public class ItemSignature {
     @Getter private final Material material;
     @Getter private final int maxStackSize;
     @Getter private final int damage;
-    @Getter private final boolean hasItemMeta;
+    @Getter @Accessors(fluent = true) private final boolean hasItemMeta;
 
     public ItemSignature(ItemStack item) {
-        this.template = item.clone();
-        this.template.setAmount(1);
+        this.template = item.asQuantity(1); // Clone with new amount
         this.material = template.getType();
         this.maxStackSize = template.getMaxStackSize();
 
@@ -77,7 +77,7 @@ public class ItemSignature {
     }
 
     // Non-cloning method for internal use
-    public ItemStack getTemplateRef() {
+    public ItemStack getUnsafeTemplateRef() {
         return template;
     }
 

@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.repository == 'NighterDevelopment/SmartSpawner'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -86,6 +87,7 @@ jobs:
           path: ./docs/dist
 
   deploy:
+    if: github.repository == 'NighterDevelopment/SmartSpawner'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

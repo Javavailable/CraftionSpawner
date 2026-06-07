@@ -13,6 +13,8 @@ import java.util.Set;
  * Controls what events are logged and how they're formatted.
  */
 public class LoggingConfig {
+    private static final String LOG_DIRECTORY = "logs";
+
     private final SmartSpawner plugin;
     @Getter
     private boolean enabled;
@@ -38,14 +40,14 @@ public class LoggingConfig {
     }
     
     public void loadConfig() {
-        this.enabled = plugin.getConfig().getBoolean("enabled", true);
-        this.jsonFormat = plugin.getConfig().getBoolean("json_format", false);
-        this.consoleOutput = plugin.getConfig().getBoolean("console_output", false);
-        this.logDirectory = plugin.getConfig().getString("log_directory", "logs");
-        this.maxLogFiles = plugin.getConfig().getInt("max_log_files", 10);
-        this.maxLogSizeMB = plugin.getConfig().getLong("max_log_size_mb", 10);
-        this.logAllEvents = plugin.getConfig().getBoolean("log_all_events", false);
-        this.loggedEvents = plugin.getConfig().getStringList("logged_events");
+        this.enabled = plugin.getConfig().getBoolean("logging.enabled", true);
+        this.jsonFormat = plugin.getConfig().getBoolean("logging.json_format", false);
+        this.consoleOutput = plugin.getConfig().getBoolean("logging.console_output", false);
+        this.logDirectory = LOG_DIRECTORY;
+        this.maxLogFiles = plugin.getConfig().getInt("logging.max_log_files", 10);
+        this.maxLogSizeMB = plugin.getConfig().getLong("logging.max_log_size_mb", 10);
+        this.logAllEvents = plugin.getConfig().getBoolean("logging.log_all_events", false);
+        this.loggedEvents = plugin.getConfig().getStringList("logging.logged_events");
 
         // Parse enabled events
         this.enabledEvents = parseEnabledEvents();
@@ -96,6 +98,6 @@ public class LoggingConfig {
     }
 
     public boolean isEventEnabled(SpawnerEventType eventType) {
-        return enabled && enabledEvents.contains(eventType);
+        return !enabled || !enabledEvents.contains(eventType);
     }
 }

@@ -341,7 +341,7 @@ public class SpawnerLootGenerator {
         return items.entrySet().stream()
                 .mapToInt(entry -> {
                     long amount = entry.getValue();
-                    int maxStackSize = entry.getKey().getTemplateRef().getMaxStackSize();
+                    int maxStackSize = entry.getKey().getMaxStackSize();
                     // Use integer division with ceiling function
                     return (int) ((amount + maxStackSize - 1) / maxStackSize);
                 })
@@ -386,7 +386,7 @@ public class SpawnerLootGenerator {
         spawnerGuiViewManager.updateSpawnerMenuViewers(spawner);
 
         // Show particles if needed
-        if (plugin.getConfig().getBoolean("particle.spawner_generate_loot", true)) {
+        if (Config.get().isSpawnerGenerateLootParticlesEnabled()) {
             Location loc = spawner.getSpawnerLocation();
             World world = loc.getWorld();
             if (world != null) {

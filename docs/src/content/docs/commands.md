@@ -27,6 +27,9 @@ All commands can be used with these aliases:
 | `/ss clear ghost_spawners` | `smartspawner.command.clear` |
 | `/ss near [radius]` | `smartspawner.command.near` |
 | `/ss near cancel` | `smartspawner.command.near` |
+| `/ss set <stack_size|range|delay> <value> [world x y z]` | `smartspawner.command.set` |
+| `/ss language [locale]` | `smartspawner.command.language` |
+| `/ss gui_layout [layout]` | `smartspawner.command.gui_layout` |
 
 ## Command Details
 
@@ -128,6 +131,24 @@ Reload all configuration files without server restart.
 - Language files
 - Hook integrations
 
+### `/ss language`
+
+```bash
+/ss language
+/ss language <locale>
+```
+
+View or change the active language. The `<locale>` argument autocompletes language folders from `plugins/SmartSpawner/language`, including custom folders added by the server owner.
+
+### `/ss gui_layout`
+
+```bash
+/ss gui_layout
+/ss gui_layout <layout>
+```
+
+View or change the active GUI layout. The `<layout>` argument autocompletes layout folders from `plugins/SmartSpawner/gui_layouts`, including custom folders added by the server owner.
+
 ### `/ss clear holograms`
 
 Kill all text display holograms from the server.
@@ -173,6 +194,20 @@ Scan for nearby spawners and highlight them through walls using glowing block ou
 - Maximum 200 spawners can be highlighted per scan
 - Scans are optimised for servers with large numbers of spawners
 
+### `/ss set`
+
+```bash
+/ss set <stack_size|range|delay> <value>
+/ss set <stack_size|range|delay> <value> <world> <x> <y> <z>
+```
+
+Set a SmartSpawner property. Without coordinates, the command updates the spawner the player is looking at. With coordinates, it updates the SmartSpawner data at that exact block location.
+
+**Parameters:**
+- `<stack_size|range|delay>` - Property to update
+- `<value>` - New value. `delay` accepts ticks or time formats such as `25s`, `1m`, or `1h`
+- `[world x y z]` - Optional exact spawner location
+
 <br>
 <br>
 
@@ -181,4 +216,4 @@ Scan for nearby spawners and highlight them through walls using glowing block ou
 
 ---
 
-*Last update: March 22, 2026*
+*Last update: June 2, 2026*

@@ -132,7 +132,7 @@ public class ItemSpawnerSettingsConfig {
             validItemSpawnerMaterials.add(material);
         }
         
-        plugin.getLogger().info("Loaded " + validItemSpawnerMaterials.size() + " item spawner configurations");
+        plugin.debug("Loaded " + validItemSpawnerMaterials.size() + " item spawner configurations");
     }
     
     /**

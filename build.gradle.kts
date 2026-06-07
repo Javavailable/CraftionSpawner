@@ -2,7 +2,7 @@ plugins {
     java
     `java-library`
     `maven-publish`
-    id("com.gradleup.shadow") version "9.4.1" apply false
+    id("com.gradleup.shadow") version "9.4.2" apply false
 }
 
 allprojects {
@@ -10,7 +10,7 @@ allprojects {
     apply(plugin = "maven-publish")
 
     group = "github.nighter"
-    version = "1.6.7"
+    version = "1.6.8"
 
     repositories {
         mavenCentral()

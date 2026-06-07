@@ -12,7 +12,7 @@
 #---------------------------------------------------
 #               Language Settings
 #---------------------------------------------------
-# Language setting (available: en_US, vi_VN, de_DE, en_US_DonutSMP, en_US_DonutSMP_v2)
+# Language setting (available: en_US, en_US_DonutSMP, en_US_DonutSMP_v2)
 language: en_US
 
 # Spawner GUI layout configuration (available: default, DonutSMP, DonutSMP_v2)
@@ -62,9 +62,13 @@ spawner_break:
   # Durability impact on tools when breaking a spawner
   durability_loss: 1    # Number of durability points deducted
 
+  # Allow sneaking while breaking a Smart Spawner stack to remove up to 64 spawners at once.
+  # If disabled, sneaking breaks only one spawner, the same as a normal break.
+  sneak_break: true
+
   # Automatically sell storage items and claim remaining XP only when a Smart Spawner is fully removed
   # Requires sell integration + smartspawner.sellall (true by default)
-  auto_sell_and_claim_exp_on_break: true
+  sell_and_xp_break: true
 
   # Enchantment Requirements for successful spawner collection
   silk_touch:
@@ -83,6 +87,14 @@ natural_spawner:
   # If false, natural spawners will drop vanilla spawner items
   convert_to_smart_spawner: false
 
+  # Optional spawner item drop chance by entity type when natural spawners are broken.
+  # If this section or an entity is omitted, the drop chance defaults to 100.0.
+  # Values must be percentages from 0.0 to 100.0.
+  # drop_chance:
+  #   ZOMBIE: 75.0
+  #   SKELETON: 50.0
+  #   BLAZE: 25.0
+
   # Whether natural spawners will spawn mobs
   spawn_mobs: true
 
@@ -98,12 +110,12 @@ sell_integration:
   # Enable or disable selling items from spawner storage
   enabled: true
 
-  # Supported types: VAULT, COINSENGINE (more will be added in the future)
+  # Supported types: VAULT, EXCELLENTECONOMY (more will be added in the future)
   currency: VAULT
 
-  # Specifies the name of the currency used by COINSENGINE
-  # This setting is only required when using COINSENGINE as the economy currency
-  coinsengine_currency: coins
+  # Specifies the name of the currency used by EXCELLENTECONOMY
+  # This setting is only required when using EXCELLENTECONOMY as the economy currency
+  excellenteconomy_currency: money
 
   # SHOP_ONLY:
   #   - Uses ONLY shop integration prices (e.g., ShopGUI+, EconomyShopGUI, etc.)
@@ -202,9 +214,6 @@ logging:
   
   # Also output logs to console (useful for debugging)
   console_output: false
-  
-  # Directory where log files are stored (relative to plugin folder)
-  log_directory: "logs"
   
   # Maximum number of log files to keep (oldest files deleted first)
   max_log_files: 10

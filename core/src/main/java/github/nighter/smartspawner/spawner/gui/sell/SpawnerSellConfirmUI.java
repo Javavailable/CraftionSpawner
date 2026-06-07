@@ -4,7 +4,7 @@ import github.nighter.smartspawner.spawner.properties.ItemSignature;
 import net.kyori.adventure.text.Component;
 import github.nighter.smartspawner.SmartSpawner;
 import github.nighter.smartspawner.language.LanguageManager;
-import github.nighter.smartspawner.nms.VersionInitializer;
+import github.nighter.smartspawner.utils.ItemTooltipUtil;
 import github.nighter.smartspawner.spawner.config.SpawnerMobHeadTexture;
 import github.nighter.smartspawner.spawner.gui.layout.GuiButton;
 import github.nighter.smartspawner.spawner.gui.layout.GuiLayout;
@@ -64,7 +64,7 @@ public class SpawnerSellConfirmUI {
 
         // Check if there are items to sell before opening
         if (spawner.getVirtualInventory().getUsedSlots() == 0) {
-            plugin.getMessageService().sendMessage(player, "no_items");
+            plugin.getMessageService().sendMessage(player, "spawner_storage_empty");
             return;
         }
 
@@ -194,7 +194,7 @@ public class SpawnerSellConfirmUI {
         }
 
         if (spawnerItem.getType() == Material.SPAWNER) {
-            VersionInitializer.hideTooltip(spawnerItem);
+            ItemTooltipUtil.hideTooltip(spawnerItem);
         }
 
         return spawnerItem;
@@ -203,7 +203,7 @@ public class SpawnerSellConfirmUI {
     private List<Component> buildSellInfoLootComponents(SpawnerData spawner, Map<ItemSignature, Long> storedItems) {
         Map<Material, Long> materialAmountMap = new HashMap<>();
         for (Map.Entry<ItemSignature, Long> entry : storedItems.entrySet()) {
-            Material material = entry.getKey().getTemplateRef().getType();
+            Material material = entry.getKey().getMaterial();
             materialAmountMap.merge(material, entry.getValue(), Long::sum);
         }
 
@@ -230,7 +230,7 @@ public class SpawnerSellConfirmUI {
             List<Map.Entry<ItemSignature, Long>> sortedItems = new ArrayList<>(storedItems.entrySet());
             sortedItems.sort(Comparator.comparing(e -> e.getKey().getMaterialName()));
             for (Map.Entry<ItemSignature, Long> entry : sortedItems) {
-                Material material = entry.getKey().getTemplateRef().getType();
+                Material material = entry.getKey().getMaterial();
                 long amount = entry.getValue();
                 String formattedAmount = languageManager.formatNumber(amount);
                 components.add(languageManager.buildTranslatableGuiLootLine(

@@ -130,8 +130,8 @@ public class VirtualInventory {
             if (preferredSortMaterial != null) {
                 sortedEntriesCache.sort((e1, e2) -> {
                     // Use getTemplateRef() to avoid cloning - we only need to read the type
-                    boolean e1Preferred = e1.getKey().getTemplateRef().getType() == preferredSortMaterial;
-                    boolean e2Preferred = e2.getKey().getTemplateRef().getType() == preferredSortMaterial;
+                    boolean e1Preferred = e1.getKey().getMaterial() == preferredSortMaterial;
+                    boolean e2Preferred = e2.getKey().getMaterial() == preferredSortMaterial;
 
                     if (e1Preferred && !e2Preferred) return -1;
                     if (!e1Preferred && e2Preferred) return 1;
@@ -153,15 +153,14 @@ public class VirtualInventory {
 
             ItemSignature sig = entry.getKey();
             long totalAmount = entry.getValue();
-            ItemStack templateItem = sig.getTemplateRef();
-            int maxStackSize = templateItem.getMaxStackSize();
+            int maxStackSize = sig.getMaxStackSize();
 
             // Create as many stacks as needed for this item type
             while (totalAmount > 0 && currentSlot < maxSlots) {
                 int stackSize = (int) Math.min(totalAmount, maxStackSize);
 
                 // Create the display item only once per slot
-                ItemStack displayItem = templateItem.clone();
+                ItemStack displayItem = sig.getTemplate();
                 displayItem.setAmount(stackSize);
 
                 // Store in cache
@@ -203,7 +202,7 @@ public class VirtualInventory {
             int estimatedSlots = 0;
             for (Map.Entry<ItemSignature, Long> entry : consolidatedItems.entrySet()) {
                 long amount = entry.getValue();
-                int maxStackSize = entry.getKey().getTemplateRef().getMaxStackSize();
+                int maxStackSize = entry.getKey().getMaxStackSize();
                 estimatedSlots += (int) Math.ceil((double) amount / maxStackSize);
                 if (estimatedSlots >= maxSlots) {
                     return maxSlots; // Cap at max slots
@@ -250,8 +249,8 @@ public class VirtualInventory {
             this.sortedEntriesCache = consolidatedItems.entrySet().stream()
                 .sorted((e1, e2) -> {
                     // Use getTemplateRef() to avoid cloning - we only need to read the type
-                    boolean e1Preferred = e1.getKey().getTemplateRef().getType() == preferredMaterial;
-                    boolean e2Preferred = e2.getKey().getTemplateRef().getType() == preferredMaterial;
+                    boolean e1Preferred = e1.getKey().getMaterial() == preferredMaterial;
+                    boolean e2Preferred = e2.getKey().getMaterial() == preferredMaterial;
 
                     if (e1Preferred && !e2Preferred) return -1;
                     if (!e1Preferred && e2Preferred) return 1;
