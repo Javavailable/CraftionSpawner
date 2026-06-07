@@ -28,7 +28,7 @@ gui_layout: default
 debug: false
 ```
 
-- `language`: Message language folder to load. Built-in options are `en_US`, `vi_VN`, `de_DE`, `en_US_DonutSMP`, and `en_US_DonutSMP_v2`.
+- `language`: Message language folder to load. Built-in options are `en_US`, `en_US_DonutSMP`, and `en_US_DonutSMP_v2`.
 - `gui_layout`: GUI layout folder to load. Built-in options are `default`, `DonutSMP`, and `DonutSMP_v2`.
 - `debug`: Enables extra console output for troubleshooting.
 
