@@ -13,6 +13,23 @@ no_permission:
   sound: block.note_block.pling
 
 # ──────────────────────────────────────────────────────
+#                     /ss list
+# ──────────────────────────────────────────────────────
+list:
+  no_spawners_found:
+    message: '&#FF4444No spawners were found.'
+    sound: block.note_block.pling
+  teleported_to_spawner:
+    message: 'You were teleported to the spawner.'
+    sound: entity.enderman.teleport
+  teleport_failed:
+    message: '&#FF4444Unable to teleport to spawner.'
+    sound: entity.enderman.teleport
+  spawner_removed:
+    message: '&fThe spawner was &#FF4444removed &fsuccessfully.'
+    sound: entity.item.break
+
+# ──────────────────────────────────────────────────────
 #                        /ss set
 # ──────────────────────────────────────────────────────
 set:
@@ -135,16 +152,15 @@ prices:
 # ──────────────────────────────────────────────────────
 #                      /ss reload
 # ──────────────────────────────────────────────────────
-reload_command_start:
-  action_bar: "&#F0C857Reloading plugin... Please wait."
-
-reload_command_success:
-  message: "Successfully reloaded &aSmartSpawner&f."
-  sound: entity.experience_orb.pickup
-
-reload_command_error:
-  message: "&#FF4444Failed to reload SmartSpawner. Please check console for details."
-  sound: block.note_block.pling
+reload:
+  start:
+    message: "&#F0C857Reloading plugin... Please wait."
+  success:
+    message: "Successfully reloaded &#3498dbSmartSpawner&f."
+    sound: entity.experience_orb.pickup
+  error:
+    message: "&#FF4444Failed to reload SmartSpawner. Please check console for details."
+    sound: block.note_block.pling
 
 # ──────────────────────────────────────────────────────
 #                      /ss language

@@ -205,7 +205,7 @@ public class ListSubCommand extends BaseSubCommand {
 
         dbHandler.getWorldsForServerAsync(targetServer, worldCounts -> {
             if (worldCounts.isEmpty()) {
-                messageService.sendMessage(player, "no_spawners_found");
+                messageService.sendMessage(player, "list.no_spawners_found");
                 return;
             }
 
@@ -802,7 +802,7 @@ public class ListSubCommand extends BaseSubCommand {
         final SortOption finalSort = sort;
         dbHandler.getCrossServerSpawnersAsync(targetServer, worldName, filter.name(), sort.name(), spawners -> {
             if (spawners.isEmpty()) {
-                messageService.sendMessage(player, "no_spawners_found");
+                messageService.sendMessage(player, "list.no_spawners_found");
                 return;
             }
 

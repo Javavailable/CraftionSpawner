@@ -43,7 +43,7 @@ public class SpawnerManagementGUI {
     public void openManagementMenu(Player player, String spawnerId, String worldName, int listPage) {
         SpawnerData spawner = spawnerManager.getSpawnerById(spawnerId);
         if (spawner == null) {
-            messageService.sendMessage(player, "teleport_failed");
+            messageService.sendMessage(player, "list.teleport_failed");
             return;
         }
 

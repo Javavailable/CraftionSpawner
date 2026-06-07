@@ -18,9 +18,8 @@
 
 prefix: '&#3498dbSᴍᴀʀᴛSᴘᴀᴡɴᴇʀ &8⏩ &r'
 
-internal:
-  missing_message_key:
-    message: '&#FF4444Missing message key: &f{key}'
+missing_message_key:
+  message: '&#FF4444Missing message key: &f{key}'
 
 # ──────────────────────────────────────────────────────
 #              Player Interaction (General)
@@ -49,10 +48,6 @@ action_failed:
   action_bar: '&#FF4444The action failed. Please try again.'
   sound: block.note_block.pling
 
-no_spawners_found:
-  message: '&#FF4444No spawners were found.'
-  sound: block.note_block.pling
-
 # ──────────────────────────────────────────────────────
 #             Spawner - Main GUI Interactions
 # ──────────────────────────────────────────────────────
@@ -76,10 +71,6 @@ exp_collected_with_mending:
 click_too_fast:
   message: '&#FF4444You are clicking too fast.'
   sound: block.note_block.bass
-
-take_all_items:
-  action_bar: '&fYou took &e{amount} &fitems from the spawner.'
-  sound: entity.item.pickup
 
 # ──────────────────────────────────────────────────────
 #         Spawner - Stacker GUI Interaction

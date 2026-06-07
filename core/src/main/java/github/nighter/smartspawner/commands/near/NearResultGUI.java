@@ -167,7 +167,7 @@ public class NearResultGUI implements Listener {
         String spawnerId = matcher.group(1);
         SpawnerData spawner = plugin.getSpawnerManager().getSpawnerById(spawnerId);
         if (spawner == null) {
-            plugin.getMessageService().sendMessage(player, "teleport_failed");
+            plugin.getMessageService().sendMessage(player, "list.teleport_failed");
             return;
         }
 

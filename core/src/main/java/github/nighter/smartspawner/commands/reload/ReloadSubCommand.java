@@ -42,7 +42,7 @@ public class ReloadSubCommand extends BaseSubCommand {
 
     private void reloadAll(CommandSender sender) {
         try {
-            plugin.getMessageService().sendMessage(sender, "reload_command_start");
+            plugin.getMessageService().sendMessage(sender, "reload.start");
 
             // Log current cache stats for debugging
             if (plugin.getConfig().getBoolean("debug", false)) {
@@ -89,11 +89,11 @@ public class ReloadSubCommand extends BaseSubCommand {
                 logCacheStats();
             }
 
-            plugin.getMessageService().sendMessage(sender, "reload_command_success");
+            plugin.getMessageService().sendMessage(sender, "reload.success");
         } catch (Exception e) {
             plugin.getLogger().severe("Error during reload: " + e.getMessage());
             e.printStackTrace();
-            plugin.getMessageService().sendMessage(sender, "reload_command_error");
+            plugin.getMessageService().sendMessage(sender, "reload.error");
         }
     }
 

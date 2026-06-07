@@ -135,7 +135,7 @@ public class MessageService {
     }
 
     private void sendMissingMessageKeyNotice(CommandSender sender, String missingKey) {
-        String message = languageManager.getMessage("internal.missing_message_key", Map.of("key", missingKey));
+        String message = languageManager.getMessage("missing_message_key", Map.of("key", missingKey));
         if (message != null && !message.startsWith("Missing message:")) {
             sender.sendMessage(message);
         }

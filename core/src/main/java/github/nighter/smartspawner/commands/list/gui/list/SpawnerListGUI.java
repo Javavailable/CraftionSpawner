@@ -225,7 +225,7 @@ public class SpawnerListGUI implements Listener {
                         holder.getCurrentPage()
                 );
             } else {
-                messageService.sendMessage(player, "teleport_failed");
+                messageService.sendMessage(player, "list.teleport_failed");
             }
         }
     }

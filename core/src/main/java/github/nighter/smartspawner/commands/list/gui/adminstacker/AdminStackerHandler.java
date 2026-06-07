@@ -46,7 +46,7 @@ public class AdminStackerHandler implements Listener {
 
         SpawnerData spawner = holder.getSpawnerData();
         if (spawner == null) {
-            messageService.sendMessage(player, "teleport_failed");
+            messageService.sendMessage(player, "list.teleport_failed");
             return;
         }
 

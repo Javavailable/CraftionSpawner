@@ -908,9 +908,7 @@ public class SpawnerStorageAction implements Listener {
         if (!result.anyItemMoved) {
             messageService.sendMessage(player, "inventory_full");
         } else {
-            Map<String, String> placeholders = new HashMap<>();
-            placeholders.put("amount", String.valueOf(result.totalMoved));
-            messageService.sendMessage(player, "take_all_items", placeholders);
+            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
         }
     }
 
