@@ -30,6 +30,7 @@ spawner_activated:
 
 spawner_protected:
   message: '&#FF4444This spawner is protected'
+  action_bar: '&#FF4444This spawner is protected'
   sound: block.note_block.pling
 
 inventory_full:
@@ -42,9 +43,11 @@ spawner_storage_empty:
 
 action_in_progress:
   message: '&#F0C857There is already an action in progress. Please wait.'
+  action_bar: '&#F0C857Action in progress. Please wait.'
   sound: block.note_block.pling
 
 action_failed:
+  message: '&#FF4444The action failed. Please try again.'
   action_bar: '&#FF4444The action failed. Please try again.'
   sound: block.note_block.pling
 
@@ -95,6 +98,7 @@ stacker_drop_blocked:
 #             Spawner - Stack Interaction
 # ──────────────────────────────────────────────────────
 spawner_different:
+  message: '&#FF4444Spawners must be the same type to stack.'
   action_bar: '&#FF4444Spawners must be the same type.'
   sound: block.note_block.pling
 
@@ -110,6 +114,7 @@ spawner_stack_success:
 #             Spawner - Egg Interaction
 # ──────────────────────────────────────────────────────
 entity_changed:
+  message: 'The spawner changed to &e{entity}&f.'
   action_bar: '&fThe spawner changed to &e{entity}&f.'
   sound: entity.player.levelup
 
@@ -117,23 +122,27 @@ entity_changed:
 #             Spawner - Break Interaction
 # ──────────────────────────────────────────────────────
 break_no_permission:
-  action_bar: '&#FF4444You do not have permission to break spawners.'
+  message: '&#FF4444You do not have permission to break this spawner.'
   sound: entity.villager.no
 
 break_silk_touch:
+  message: '&#FF4444You need Silk Touch to break this spawner.'
   action_bar: '&#FF4444You need Silk Touch.'
   sound: item.shield.block
 
 break_tool_required:
-  action_bar: '&#FF4444You cannot break this spawner with that tool.'
+  message: '&#FF4444You cannot break spawner with this tool.'
+  action_bar: '&#FF4444Cannot break spawner with this tool.'
   sound: item.shield.block
 
 drop_failed:
   message: '&#FF4444No luck this time - the spawner did not drop.'
+  action_bar: '&#FF4444The spawner did not drop.'
   sound: block.note_block.pling
 
 sneak_break_blocked:
   message: '&#FF4444You cannot break the whole stack when this spawner has drop chance.'
+  action_bar: '&#FF4444Cannot break whole stack.'
   sound: block.note_block.pling
 
 # ──────────────────────────────────────────────────────
@@ -145,4 +154,5 @@ no_sellable_items:
 
 sell_success:
   message: 'You sold &e{amount} &fitem(s) for &a${price}&f.'
+  action_bar: '&a+${price}'
   sound: block.note_block.bell
