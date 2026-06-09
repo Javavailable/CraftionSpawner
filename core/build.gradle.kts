@@ -29,7 +29,7 @@ dependencies {
     compileOnly("com.bgsoftware:SuperiorSkyblockAPI:2026.1")
     compileOnly("com.github.MilkBowl:VaultAPI:1.7.1")
     compileOnly("su.nightexpress.excellenteconomy:ExcellentEconomy:2.8.0")
-    compileOnly("su.nightexpress.nightcore:main:2.15.3")
+    compileOnly("su.nightexpress.nightcore:main:2.16.2")
     compileOnly("com.github.Gypopo:EconomyShopGUI-API:1.10.0")
     compileOnly("world.bentobox:bentobox:3.17.0")
     compileOnly("dev.aurelium:auraskills-api-bukkit:2.3.12")
