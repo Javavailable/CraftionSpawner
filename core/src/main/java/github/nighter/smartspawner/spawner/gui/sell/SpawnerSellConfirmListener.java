@@ -166,14 +166,20 @@ public class SpawnerSellConfirmListener implements Listener {
             return;
         }
 
-        // Collect exp if requested (sync, safe on this thread)
+        // Collect exp silently so we can send a single combined sell+exp message
+        long expCollected = 0;
+        long expMending = 0;
         if (collectExp) {
-            plugin.getSpawnerMenuAction().handleExpBottleClick(player, spawner, true);
+            long[] expData = plugin.getSpawnerMenuAction().collectExpSilently(player, spawner);
+            expCollected = expData[0];
+            expMending = expData[1];
         }
 
         // Callback runs on the spawner's region/main thread after the sell fully completes.
         // Defers the GUI reopen until the inventory is actually emptied, closing the race
         // window where a storage GUI could be reopened with stale (pre-removal) items.
+        final long finalExpCollected = expCollected;
+        final long finalExpMending = expMending;
         Runnable onComplete = () ->
             // player.openInventory() -> ServerPlayer.initMenu() must run on the PLAYER's own
             // region thread on Folia/Canvas, NOT the global region thread (the sell completes on
@@ -182,7 +188,7 @@ public class SpawnerSellConfirmListener implements Listener {
             // player logged off mid-sell, the entity task simply never runs.
             Scheduler.runEntityTask(player, () -> reopenPreviousGui(player, spawner, previousGui));
 
-        plugin.getSpawnerSellManager().sellAllItems(player, spawner, onComplete);
+        plugin.getSpawnerSellManager().sellAllItems(player, spawner, onComplete, finalExpCollected, finalExpMending);
     }
 
     private void reopenPreviousGui(Player player, SpawnerData spawner, SpawnerSellConfirmUI.PreviousGui previousGui) {

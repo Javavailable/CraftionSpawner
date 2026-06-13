@@ -67,13 +67,17 @@ public class SpawnerSellConfirmUI {
                 return;
             }
 
-            // Collect exp if requested
+            // Collect exp silently so we can send a single combined sell+exp message
+            long expCollected = 0;
+            long expMending = 0;
             if (collectExp) {
-                plugin.getSpawnerMenuAction().handleExpBottleClick(player, spawner, true);
+                long[] expData = plugin.getSpawnerMenuAction().collectExpSilently(player, spawner);
+                expCollected = expData[0];
+                expMending = expData[1];
             }
 
             player.closeInventory();
-            plugin.getSpawnerSellManager().sellAllItems(player, spawner, null);
+            plugin.getSpawnerSellManager().sellAllItems(player, spawner, null, expCollected, expMending);
             return;
         }
 

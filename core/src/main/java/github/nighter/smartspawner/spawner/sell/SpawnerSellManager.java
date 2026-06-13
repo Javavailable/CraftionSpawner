@@ -33,7 +33,15 @@ public class SpawnerSellManager {
      * Convenience overload with no completion callback.
      */
     public void sellAllItems(Player player, SpawnerData spawner) {
-        sellAllItems(player, spawner, null);
+        sellAllItems(player, spawner, null, 0, 0);
+    }
+
+    /**
+     * Sells all items from the spawner's virtual inventory.
+     * Convenience overload with completion callback but no exp data.
+     */
+    public void sellAllItems(Player player, SpawnerData spawner, Runnable onComplete) {
+        sellAllItems(player, spawner, onComplete, 0, 0);
     }
 
     /**
@@ -52,11 +60,14 @@ public class SpawnerSellManager {
      * If the sell cannot be initiated (already selling, empty inventory), {@code onComplete} is
      * invoked synchronously on the calling thread so the caller can always do cleanup.
      *
-     * @param onComplete optional callback, runs on the spawner's region/main thread after sell
-     *                   completes (success or failure that got past the CAS). Never called if
-     *                   the sell was outright rejected (CAS failed / empty).
+     * @param onComplete  optional callback, runs on the spawner's region/main thread after sell
+     *                    completes (success or failure that got past the CAS). Never called if
+     *                    the sell was outright rejected (CAS failed / empty).
+     * @param expCollected total exp that was already silently collected before this sell (for
+     *                     combined sell+exp message). Pass 0 if no exp was collected.
+     * @param expMending   amount of exp consumed by Mending (out of expCollected). Pass 0 if none.
      */
-    public void sellAllItems(Player player, SpawnerData spawner, Runnable onComplete) {
+    public void sellAllItems(Player player, SpawnerData spawner, Runnable onComplete, long expCollected, long expMending) {
         // Single atomic guard – prevents race conditions and double-sell exploits
         if (!spawner.startSelling()) {
             messageService.sendMessage(player, "action_in_progress");
@@ -109,7 +120,7 @@ public class SpawnerSellManager {
             // Apply on the location's region thread (Folia) or the main thread (Paper)
             Scheduler.runLocationTask(spawnerLocation, () -> {
                 try {
-                    applySellResult(player, spawner, result);
+                    applySellResult(player, spawner, result, expCollected, expMending);
                 } finally {
                     // onComplete MUST run in finally so activeSells is always cleared,
                     // even when applySellResult throws (e.g. economy plugin error).
@@ -128,8 +139,11 @@ public class SpawnerSellManager {
      * Applies the sell result on the spawner's region/main thread.
      * Called while {@code spawner.isSelling()} is true; {@code stopSelling()} is the caller's
      * responsibility via the surrounding finally block.
+     *
+     * @param expCollected total exp already silently collected (0 = none / regular sell only)
+     * @param expMending   amount of exp consumed by Mending
      */
-    private void applySellResult(Player player, SpawnerData spawner, SellResult sellResult) {
+    private void applySellResult(Player player, SpawnerData spawner, SellResult sellResult, long expCollected, long expMending) {
         if (!sellResult.isSuccessful()) {
             messageService.sendMessage(player, "no_sellable_items");
             return;
@@ -172,7 +186,19 @@ public class SpawnerSellManager {
         Map<String, String> placeholders = new HashMap<>();
         placeholders.put("amount", plugin.getLanguageManager().formatNumber(sellResult.getItemsSold()));
         placeholders.put("price", plugin.getLanguageManager().formatNumber(amount));
-        messageService.sendMessage(player, "sell_success", placeholders);
+
+        if (expCollected > 0) {
+            long expGiven = expCollected - expMending;
+            placeholders.put("exp", plugin.getLanguageManager().formatNumber(expGiven));
+            if (expMending > 0) {
+                placeholders.put("exp_mending", plugin.getLanguageManager().formatNumber(expMending));
+                messageService.sendMessage(player, "sell_and_exp_success_with_mending", placeholders);
+            } else {
+                messageService.sendMessage(player, "sell_and_exp_success", placeholders);
+            }
+        } else {
+            messageService.sendMessage(player, "sell_success", placeholders);
+        }
         player.playSound(player.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1.0f, 1.0f);
 
         spawner.markLastSellAsProcessed();

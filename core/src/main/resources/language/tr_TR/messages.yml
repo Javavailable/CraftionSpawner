@@ -156,3 +156,13 @@ sell_success:
   message: '&e{amount} &fadet eşyayı &a${price} &fkarşılığında sattın.'
   action_bar: '&a+${price}'
   sound: block.note_block.bell
+
+sell_and_exp_success:
+  message: '&e{amount} &fadet eşyayı &a${price} &fkarşılığında sattın ve &a{exp} &fXP topladın.'
+  action_bar: '&a+${price} &f| &a+{exp} XP'
+  sound: block.note_block.bell
+
+sell_and_exp_success_with_mending:
+  message: '&e{amount} &fadet eşyayı &a${price} &fkarşılığında sattın, &a{exp} &fXP topladın &f(&c{exp_mending} &fTamir için harcandı).'
+  action_bar: '&a+${price} &f| &a+{exp} XP &f(&c-{exp_mending} Tamir)'
+  sound: block.note_block.bell

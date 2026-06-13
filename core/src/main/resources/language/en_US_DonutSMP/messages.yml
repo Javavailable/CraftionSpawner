@@ -156,3 +156,13 @@ sell_success:
   message: 'You sold &e{amount} &fitem(s) for &a${price}&f.'
   action_bar: '&a+${price}'
   sound: block.note_block.bell
+
+sell_and_exp_success:
+  message: 'You sold &e{amount} &fitem(s) for &a${price}&f and collected &a{exp} &fEXP.'
+  action_bar: '&a+${price} &f| &a+{exp} EXP'
+  sound: block.note_block.bell
+
+sell_and_exp_success_with_mending:
+  message: 'You sold &e{amount} &fitem(s) for &a${price}&f, collected &a{exp} &fEXP &f(&c{exp_mending} &fused on Mending).'
+  action_bar: '&a+${price} &f| &a+{exp} EXP &f(&c-{exp_mending} Mending)'
+  sound: block.note_block.bell

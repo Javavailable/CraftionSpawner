@@ -458,6 +458,61 @@ public class SpawnerMenuAction implements Listener {
         return expUsed;
     }
 
+    /**
+     * Collects exp from the spawner silently (without sending a message to the player).
+     * Used by the sell_and_exp flow so the caller can send a single combined sell+exp message.
+     *
+     * @return long[] { initialExp, expUsedForMending }, where initialExp == 0 means no exp was collected.
+     */
+    public long[] collectExpSilently(Player player, SpawnerData spawner) {
+        long exp = spawner.getSpawnerExp();
+        if (exp <= 0) {
+            return new long[]{0, 0};
+        }
+
+        long initialExp = exp;
+        long expUsedForMending = 0;
+
+        // Apply mending first if enabled
+        if (plugin.getConfig().getBoolean("spawner_properties.default.allow_exp_mending")) {
+            expUsedForMending = applyMendingFromExp(player, exp);
+            exp -= expUsedForMending;
+        }
+
+        // Give AuraSkills XP if integration is enabled
+        if (auraSkills != null) {
+            giveAuraSkillsXp(player, spawner, initialExp);
+        }
+
+        // Give remaining exp to player
+        if (exp > 0) {
+            if (SpawnerExpClaimEvent.getHandlerList().getRegisteredListeners().length != 0) {
+                SpawnerExpClaimEvent expClaimEvent = new SpawnerExpClaimEvent(player, spawner.getSpawnerLocation(), exp);
+                Bukkit.getPluginManager().callEvent(expClaimEvent);
+                if (expClaimEvent.isCancelled()) return new long[]{0, 0};
+                if (exp != expClaimEvent.getExpAmount()) exp = expClaimEvent.getExpAmount();
+            }
+            givePlayerExpInChunks(player, exp);
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.0f);
+        }
+
+        // Reset spawner exp and mark modified
+        spawner.setSpawnerExp(0);
+        plugin.getSpawnerManager().markSpawnerModified(spawner.getSpawnerId());
+
+        // Update all viewers
+        spawnerGuiViewManager.updateSpawnerMenuViewers(spawner);
+
+        // Update spawner capacity status
+        if (spawner.getSpawnerExp() < spawner.getMaxStoredExp()) {
+            if (spawner.getIsAtCapacity()) {
+                spawner.setIsAtCapacity(false);
+            }
+        }
+
+        return new long[]{initialExp, expUsedForMending};
+    }
+
     private void sendExpCollectionMessage(Player player, long totalExp, long mendingExp) {
         Map<String, String> placeholders = new HashMap<>();
 
