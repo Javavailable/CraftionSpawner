@@ -5,8 +5,8 @@
 #                  Main GUI
 # ──────────────────────────────────────────────────────
 gui_title_main:
-  single_spawner: '{ᴇɴᴛɪᴛʏ} ꜱᴘᴀᴡɴᴇʀ'
-  stacked_spawner: '{amount} {ᴇɴᴛɪᴛʏ} ꜱᴘᴀᴡɴᴇʀ'
+  single_spawner: 'ꜱᴘᴀᴡɴᴇʀ {ᴇɴᴛɪᴛʏ}'
+  stacked_spawner: '{amount} ꜱᴘᴀᴡɴᴇʀ {ᴇɴᴛɪᴛʏ}'
 
 spawner_storage_item:
   # Available placeholders for name:
@@ -120,7 +120,7 @@ exp_info_item:
 gui_title_stacker: ꜱᴛᴀᴄᴋ ꜱᴘᴀᴡɴᴇʀ
 
 button_spawner:
-  name: '&f{ᴇɴᴛɪᴛʏ} &#5DB5F1ꜱᴘᴀᴡɴᴇʀ'
+  name: '&#5DB5F1ꜱᴘᴀᴡɴᴇʀ &f{ᴇɴᴛɪᴛʏ}'
   lore:
     - ''
     - ' &#5DB5F1ℹ ᴛʜôɴɢ ᴛɪɴ:'
@@ -361,10 +361,10 @@ filter_item_blocked:
 # ──────────────────────────────────────────────────────
 bedrock:
   main_gui:
-    title_single_spawner: '{entity} Spawner'
-    title_stacked_spawner: '{amount} {entity} Spawner'
+    title_single_spawner: 'Spawner {entity}'
+    title_stacked_spawner: '{amount} Spawner {entity}'
 
-    view_info_title: '{entity} Spawner - Thông tin'
+    view_info_title: 'Spawner {entity} - Thông tin'
 
     button_names:
       storage: Mở kho

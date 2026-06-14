@@ -17,7 +17,14 @@ SmartSpawner accepts short, readable duration values:
 
 1. Create a new folder in the `language` directory.
 2. Copy the files from the `en_US` folder as a template.
-3. Edit files such as `messages.yml`, `formatting.yml`, `items.yml`, and `gui.yml`.
+3. Translate the language files:
+   - `messages.yml`
+   - `command_messages.yml`
+   - `gui.yml`
+   - `command_gui.yml`
+   - `items.yml`
+   - `formatting.yml`
+   - `hologram.yml`
 4. Set `language` in `config.yml` to your custom folder name.
 
 ## Language Settings
@@ -28,9 +35,32 @@ gui_layout: default
 debug: false
 ```
 
-- `language`: Message language folder to load. Built-in options are `en_US`, `en_US_DonutSMP`, `en_US_DonutSMP_v2`, and `tr_TR`.
+- `language`: Language folder to load from the plugin's `language` directory.
 - `gui_layout`: GUI layout folder to load. Built-in options are `default`, `DonutSMP`, and `DonutSMP_v2`.
 - `debug`: Enables extra console output for troubleshooting.
+
+### Built-in Languages
+
+| Locale | Language |
+| --- | --- |
+| `en_US` | English |
+| `en_US_DonutSMP` | English, styled for the DonutSMP layout |
+| `en_US_DonutSMP_v2` | English, styled for the DonutSMP v2 layout |
+| `tr_TR` | Turkish |
+| `vi_VN` | Vietnamese (Tiếng Việt) |
+
+To use Vietnamese, set:
+
+```yaml
+language: vi_VN
+```
+
+The `language` and `gui_layout` settings are independent. For example, `vi_VN` can be used with the default GUI layout:
+
+```yaml
+language: vi_VN
+gui_layout: default
+```
 
 ## Core Spawner Properties
 
@@ -359,4 +389,4 @@ Recommended values:
 
 ---
 
-*Last update: June 2, 2026*
+*Last update: June 14, 2026*

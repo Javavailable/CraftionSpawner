@@ -26,7 +26,7 @@
 | English            | `en_US`     | [Nighter](https://github.com/ptthanh02)         | Latest |
 | Italian            | `it_IT`     | [RV_SkeLe](https://github.com/RVSkeLe)          | v1.3.5 (Outdated) |
 | Turkish            | `tr_TR`     | berkkorkmaz, [onurrrk](https://github.com/onurrrk) | Latest |
-| Vietnamese         | `vi_VN`     | [Nighter](https://github.com/ptthanh02)         | v1.6.7 (Outdated) |
+| Vietnamese         | `vi_VN`     | [Nighter](https://github.com/ptthanh02)         | Latest |
 
 ## API
 

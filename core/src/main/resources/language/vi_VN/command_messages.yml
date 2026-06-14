@@ -98,10 +98,10 @@ give:
     message: "&#FF4444Một số spawner đã rơi ra vì túi đồ đã đầy."
     sound: block.note_block.pling
   spawner_received:
-    message: "Bạn đã nhận &a{amount} {entity} &fspawner."
+    message: "Bạn đã nhận &a{amount} &fspawner {entity}."
     sound: entity.experience_orb.pickup
   spawner_given:
-    message: "Đã trao &a{amount} {entity} &fspawner cho &#3498db{player}&f."
+    message: "Đã trao &a{amount} &fspawner {entity} cho &#3498db{player}&f."
     sound: entity.experience_orb.pickup
 
 # ──────────────────────────────────────────────────────
