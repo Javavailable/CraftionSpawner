@@ -1,0 +1,208 @@
+# ──────────────────────────────────────────────────────
+#                  General Components
+# ──────────────────────────────────────────────────────
+general_navigation:
+  previous_page:
+    name: '&#37eb9aᴛʀᴀɴɢ ᴛʀᴜ̛ᴏ̛́ᴄ'
+    lore:
+      - '&#2cc483 ▸ &#f8f8ffNhấp để đến trang &#37eb9a{target_page}'
+  next_page:
+    name: '&#37eb9aᴛʀᴀɴɢ ꜱᴀᴜ'
+    lore:
+      - '&#2cc483 ▸ &#f8f8ffNhấp để đến trang &#37eb9a{target_page}'
+  close:
+    name: '&#FF6B6Bᴅ̵ᴏ́ɴɢ'
+    lore:
+      - '&#FF6B6B ▸ &fNhấp để đóng!'
+  back:
+    name: '&fǫᴜᴀʏ ʟᴀ̣ɪ &#FF6B6B{previous_menu}'
+    lore:
+      - '&c ▸ &fNhấp để quay lại!'
+  menu_names:
+    server_selection: 'ᴄʜᴏ̣ɴ ᴍᴀ́ʏ ᴄʜᴜ̉'
+    world_selection: 'ᴄʜᴏ̣ɴ ᴛʜᴇ̂́ ɢɪᴏ̛́ɪ'
+    spawner_list: 'ᴅᴀɴʜ ꜱᴀ́ᴄʜ ꜱᴘᴀᴡɴᴇʀ'
+    spawner_management: 'ǫᴜᴀ̉ɴ ʟʏ́ ꜱᴘᴀᴡɴᴇʀ'
+
+general:
+  selected_option: ' &#5DB5F1• {option_name}'
+  unselected_option: ' &f• {option_name}'
+
+# ──────────────────────────────────────────────────────
+#     Server Selection GUI (for cross-server setups)
+# ──────────────────────────────────────────────────────
+gui_title_server_selection: 'ᴄʜᴏ̣ɴ ᴍᴀ́ʏ ᴄʜᴜ̉'
+gui_title_world_selection_server: '{server} ᴛʜᴇ̂́ ɢɪᴏ̛́ɪ'
+
+server_selection:
+  current_server:
+    name: '&#37eb9a{server}'
+    lore:
+      - ''
+      - ' &#37eb9aℹ ᴛʀᴀ̣ɴɢ ᴛʜᴀ́ɪ:'
+      - '  &8• &fMáy chủ hiện tại'
+      - ''
+      - '&#37eb9a ▸ Nhấp để xem các spawner!'
+  remote_server:
+    name: '&#F0C857{server}'
+    lore:
+      - ''
+      - ' &#F0C857ℹ ᴛʀᴀ̣ɴɢ ᴛʜᴀ́ɪ:'
+      - '  &8• &fMáy chủ từ xa'
+      - ''
+      - '&#F0C857 ▸ Nhấp để xem các spawner!'
+
+# ──────────────────────────────────────────────────────
+#              World Selection GUI
+# ──────────────────────────────────────────────────────
+gui_title_world_selection: 'ᴄʜᴏ̣ɴ ᴛʜᴇ̂́ ɢɪᴏ̛́ɪ'
+
+world_display_names:
+  overworld: 'Thế Giới Chính'
+  nether: 'Địa Ngục'
+  the_end: 'The End'
+  custom: 'Thế giới {world_name}'
+
+world_buttons:
+  NORMAL:
+    name: '&#37eb9a{world_name}'
+    lore:
+      - ''
+      - ' &#37eb9aℹ ᴛʜᴏ̂́ɴɢ ᴋᴇ̂:'
+      - '  &8• &fSố spawner: &e{total}'
+      - '  &8• &fTổng spawner đã xếp: &e{total_stacked}'
+      - '{remote_world_lore}'
+      - ''
+      - '&#37eb9a ▸ Nhấp để mở danh sách!'
+  NETHER:
+    name: '&#FF6B6B{world_name}'
+    lore:
+      - ''
+      - ' &#FF6B6Bℹ ᴛʜᴏ̂́ɴɢ ᴋᴇ̂:'
+      - '  &8• &fSố spawner: &e{total}'
+      - '  &8• &fTổng spawner đã xếp: &e{total_stacked}'
+      - '{remote_world_lore}'
+      - ''
+      - '&#FF6B6B ▸ Nhấp để mở danh sách!'
+  THE_END:
+    name: '&#C8A2FF{world_name}'
+    lore:
+      - ''
+      - ' &#C8A2FFℹ ᴛʜᴏ̂́ɴɢ ᴋᴇ̂:'
+      - '  &8• &fSố spawner: &e{total}'
+      - '  &8• &fTổng spawner đã xếp: &e{total_stacked}'
+      - '{remote_world_lore}'
+      - ''
+      - '&#C8A2FF ▸ Nhấp để mở danh sách!'
+  CUSTOM:
+    name: '&#5DB5F1{world_name}'
+    lore:
+      - ''
+      - ' &#5DB5F1ℹ ᴛʜᴏ̂́ɴɢ ᴋᴇ̂:'
+      - '  &8• &fSố spawner: &e{total}'
+      - '  &8• &fTổng spawner đã xếp: &e{total_stacked}'
+      - '{remote_world_lore}'
+      - ''
+      - '&#5DB5F1 ▸ Nhấp để mở danh sách!'
+
+remote_world_lore:
+  - ''
+  - ' &#F0C857ℹ ᴛʜᴇ̂́ ɢɪᴏ̛́ɪ ᴛᴜ̛̀ xᴀ:'
+  - '  &8• &fMáy chủ: &e{server}'
+
+# ──────────────────────────────────────────────────────
+#                  Spawner List GUI
+# ──────────────────────────────────────────────────────
+gui_title_spawner_list: '[{current}/{total}] {world}'
+gui_title_spawner_list_remote: '[{current}/{total}] {world} ({server})'
+
+filter:
+  button:
+    name: '&fʟᴏ̣ᴄ &#5DB5F1ꜱᴘᴀᴡɴᴇʀ'
+    lore:
+      - ''
+      - '{available_options}'
+      - ''
+      - '&#5DB5F1 ▸ Nhấp để đổi bộ lọc!'
+  option_name:
+    all: 'Tất cả'
+    active: 'Hoạt động'
+    inactive: 'Không hoạt động'
+
+sort:
+  button:
+    name: '&fꜱᴀ̆́ᴘ xᴇ̂́ᴘ &#5DB5F1ꜱᴘᴀᴡɴᴇʀ'
+    lore:
+      - ''
+      - '{available_options}'
+      - ''
+      - '&#5DB5F1 ▸ Nhấp để đổi cách sắp xếp!'
+  option_name:
+    default: 'Mặc định (ID)'
+    stack_size_asc: 'Số lượng xếp chồng (↑)'
+    stack_size_desc: 'Số lượng xếp chồng (↓)'
+
+spawner_item_list:
+  name: '&fꜱᴘᴀᴡɴᴇʀ &#5DB5F1#{id}'
+  lore:
+    - ''
+    - ' &#5DB5F1ℹ ᴛʜᴏ̂ɴɢ ᴛɪɴ:'
+    - '  &8• &fSinh vật: &e{entity}'
+    - '  &8• &fXếp chồng: &e{size}'
+    - '  &8• &fTrạng thái: {status}'
+    - '  &8• &fNgười chơi cuối: &e{last_player}'
+    - '  &8• &fVị trí: &7x: {x}, y: {y}, z: {z}'
+    - ''
+    - '&#5DB5F1 ▸ Nhấp để quản lý spawner này!'
+  remote_lore:
+    - ''
+    - ' &#5DB5F1ℹ ᴛʜᴏ̂ɴɢ ᴛɪɴ:'
+    - '  &8• &fSinh vật: &e{entity}'
+    - '  &8• &fXếp chồng: &e{size}'
+    - '  &8• &fTrạng thái: {status}'
+    - '  &8• &fNgười chơi cuối: &e{last_player}'
+    - '  &8• &fVị trí: &7x: {x}, y: {y}, z: {z}'
+    - ''
+    - '&#FF6B6B ⚠ Không thể quản lý spawner từ xa!'
+  last_player_none: 'Không có'
+  status:
+    active: '&#00E689Hoạt động'
+    inactive: '&#ff6b6bKhông hoạt động'
+
+# ──────────────────────────────────────────────────────
+#              Spawner Management GUI
+# ──────────────────────────────────────────────────────
+gui_title_spawner_management: 'ǫᴜᴀ̉ɴ ʟʏ́ ꜱᴘᴀᴡɴᴇʀ'
+
+spawner_management:
+  teleport:
+    name: '&fᴅɪ̣ᴄʜ ᴄʜᴜʏᴇ̂̉ɴ &#5DB5F1ᴅ̵ᴇ̂́ɴ ꜱᴘᴀᴡɴᴇʀ'
+    lore:
+      - '&#5DB5F1 ▸ &fNhấp để dịch chuyển!'
+  open_spawner:
+    name: '&fᴍᴏ̛̉ &#5DB5F1ᴍᴇɴᴜ ꜱᴘᴀᴡɴᴇʀ'
+    lore:
+      - '&#5DB5F1 ▸ &fNhấp để mở menu!'
+  stack:
+    name: '&fᴄʜɪ̉ɴʜ ꜱᴜ̛̉ᴀ &#5DB5F1xᴇ̂́ᴘ ᴄʜᴏ̂̀ɴɢ'
+    lore:
+      - '&#5DB5F1 ▸ &fNhấp để chỉnh sửa chồng!'
+  remove:
+    name: '&fɢᴏ̛̃ ʙᴏ̉ &#FF6B6Bꜱᴘᴀᴡɴᴇʀ'
+    lore:
+      - '&#FF6B6B ▸ &fNhấp để gỡ spawner này!'
+
+# ──────────────────────────────────────────────────────
+#                    Prices GUI
+# ──────────────────────────────────────────────────────
+gui_title_prices: '[{current_page}/{total_pages}] ɢɪᴀ́ ʙᴀ́ɴ'
+
+price_item:
+  name: '&f{item_name} &#5DB5F1ɢɪᴀ́'
+  lore:
+    - ''
+    - ' &#5DB5F1ℹ ᴛʜᴏ̂ɴɢ ᴛɪɴ:'
+    - '  &8• &fGiá cuối: &a${price}'
+    - '  &8• &fNguồn: &e{price_source}'
+    - '  &8• &fGiá tùy chỉnh: &a${custom_price}'
+    - '  &8• &fGiá cửa hàng: &a${shop_price}'

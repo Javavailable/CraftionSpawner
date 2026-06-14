@@ -1,0 +1,92 @@
+# SmartSpawner – items.yml
+# Spawner item display names and drop item names.
+
+# Appearance of smart spawner items in inventory and tooltips
+# Available placeholders: {entity}, {ᴇɴᴛɪᴛʏ}, {exp}, {loot_items}, {amount}, {item_name}, {chance}
+smart_spawner:
+  default:
+    name: '&#5DB5F1{entity} Spawner'
+    loot_items: '  &#ecf0f1 • {amount} {item_name} &#3498db({chance}%)'
+    loot_items_empty: '  &#ecf0f1 •  Không có'
+    lore:
+      - ''
+      - ' &#5DB5F1 ᴄʜɪ ᴛɪᴇ̂́ᴛ:'
+      - '  &#ecf0f1 • &fEXP nhận: &a{exp}'
+      - ''
+      - ' &#5DB5F1 ᴠᴀ̣̂ᴛ ᴘʜᴀ̂̉ᴍ ʀᴏ̛ɪ:'
+      - '{loot_items}'
+      - ''
+  # Entity-specific sections override default per key. Unspecified keys use default.
+  PIG:
+    name: '&#FF77B7{entity} Spawner'
+    loot_items: '  &#FFF0F7 • {amount} {item_name} &#FF8FC7({chance}%)'
+    loot_items_empty: '  &#FFF0F7 •  Không có'
+    lore:
+      - ''
+      - ' &#FF77B7 ᴄʜɪ ᴛɪᴇ̂́ᴛ:'
+      - '  &#FFF0F7 • &fEXP nhận: &#FF8FC7{exp}'
+      - ''
+      - ' &#FF77B7 ᴠᴀ̣̂ᴛ ᴘʜᴀ̂̉ᴍ ʀᴏ̛ɪ:'
+      - '{loot_items}'
+      - ''
+  BLAZE:
+    name: '&#FFB300{entity} Spawner'
+    loot_items: '  &#FFF4CC • {amount} {item_name} &#FFC107({chance}%)'
+    loot_items_empty: '  &#FFF4CC •  Không có'
+    lore:
+      - ''
+      - ' &#FFB300 ᴄʜɪ ᴛɪᴇ̂́ᴛ:'
+      - '  &#FFF4CC • &fEXP nhận: &#FFD54F{exp}'
+      - ''
+      - ' &#FFB300 ᴠᴀ̣̂ᴛ ᴘʜᴀ̂̉ᴍ ʀᴏ̛ɪ:'
+      - '{loot_items}'
+      - ''
+
+# Appearance of item spawner items in inventory and tooltips
+# Available placeholders: {entity}, {ᴇɴᴛɪᴛʏ}, {exp}, {loot_items}, {amount}, {item_name}, {chance}
+item_spawner:
+  default:
+    name: '&#5DB5F1{entity} Spawner'
+    loot_items: '  &#ecf0f1 • {amount} {item_name} &#3498db({chance}%)'
+    loot_items_empty: '  &#ecf0f1 •  Không có'
+    lore:
+      - ''
+      - ' &#5DB5F1 ᴄʜɪ ᴛɪᴇ̂́ᴛ:'
+      - '  &#ecf0f1 • &fEXP nhận: &a{exp}'
+      - ''
+      - ' &#5DB5F1 ᴠᴀ̣̂ᴛ ᴘʜᴀ̂̉ᴍ ʀᴏ̛ɪ:'
+      - '{loot_items}'
+      - ''
+  # Material-specific sections override default per key. Unspecified keys use default.
+  DIAMOND:
+    name: '&#00E5FF{entity} Spawner'
+    loot_items: '  &#EAFDFF • {amount} {item_name} &#00B8D4({chance}%)'
+    loot_items_empty: '  &#EAFDFF •  Không có'
+    lore:
+      - ''
+      - ' &#00E5FF ᴄʜɪ ᴛɪᴇ̂́ᴛ:'
+      - '  &#EAFDFF • &fEXP nhận: &#00B8D4{exp}'
+      - ''
+      - ' &#00E5FF ᴠᴀ̣̂ᴛ ᴘʜᴀ̂̉ᴍ ʀᴏ̛ɪ:'
+      - '{loot_items}'
+      - ''
+  AMETHYST_SHARD:
+    name: '&#B66CFF{entity} Spawner'
+    loot_items: '  &#F5ECFF • {amount} {item_name} &#D6A5FF({chance}%)'
+    loot_items_empty: '  &#F5ECFF •  Không có'
+    lore:
+      - ''
+      - ' &#B66CFF ᴄʜɪ ᴛɪᴇ̂́ᴛ:'
+      - '  &#F5ECFF • &fEXP nhận: &#D6A5FF{exp}'
+      - ''
+      - ' &#B66CFF ᴠᴀ̣̂ᴛ ᴘʜᴀ̂̉ᴍ ʀᴏ̛ɪ:'
+      - '{loot_items}'
+      - ''
+
+# Appearance of vanilla spawner items in inventory and tooltips
+# Available placeholders: {entity}, {ᴇɴᴛɪᴛʏ}
+# Delete this section if you don't want to use custom vanilla spawners name and lore
+vanilla_spawner:
+  default:
+    name: "{entity} Spawner"
+    lore:

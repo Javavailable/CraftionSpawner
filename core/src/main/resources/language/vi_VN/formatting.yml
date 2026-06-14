@@ -1,0 +1,101 @@
+# SmartSpawner – formatting.yml
+# Number formatting and mob display names used throughout the plugin.
+
+# ──────────────────────────────────────────────────────
+#                 Number Formatting
+# ──────────────────────────────────────────────────────
+# Controls how large numbers are displayed in-game
+format_number:
+  thousand: "{s}K"    # Example: 5000 → 5K
+  million: "{s}M"     # Example: 2000000 → 2M
+  billion: "{s}B"     # Example: 1500000000 → 1.5B
+  trillion: "{s}T"    # Example: 1000000000000 → 1T
+  default: "{s}"      # Fallback format when no other rule matches
+
+# ──────────────────────────────────────────────────────
+#                 Mob Display Names
+# ──────────────────────────────────────────────────────
+# Defines how mob names appear in spawner GUIs, items, holograms and messages
+mob_names:
+  # Passive Mobs
+  ALLAY: "Allay"
+  ARMADILLO: "Tê tê"
+  AXOLOTL: "Kỳ giông Mexico"
+  BAT: "Dơi"
+  BEE: "Ong"
+  CAMEL: "Lạc đà"
+  CAT: "Mèo"
+  CHICKEN: "Gà"
+  COD: "Cá tuyết"
+  COW: "Bò"
+  DOLPHIN: "Cá heo"
+  DONKEY: "Lừa"
+  FOX: "Cáo"
+  FROG: "Ếch"
+  GLOW_SQUID: "Mực phát sáng"
+  GOAT: "Dê"
+  HORSE: "Ngựa"
+  IRON_GOLEM: "Người sắt"
+  LLAMA: "Lạc đà không bướu"
+  MOOSHROOM: "Bò nấm"
+  MULE: "La"
+  OCELOT: "Mèo rừng"
+  PANDA: "Gấu trúc"
+  PARROT: "Vẹt"
+  PIG: "Lợn"
+  POLAR_BEAR: "Gấu Bắc Cực"
+  PUFFERFISH: "Cá nóc"
+  RABBIT: "Thỏ"
+  SALMON: "Cá hồi"
+  SHEEP: "Cừu"
+  SNIFFER: "Sniffer"
+  SNOW_GOLEM: "Người tuyết"
+  SQUID: "Mực"
+  STRIDER: "Strider"
+  TADPOLE: "Nòng nọc"
+  TRADER_LLAMA: "Lạc đà thương nhân"
+  TROPICAL_FISH: "Cá nhiệt đới"
+  TURTLE: "Rùa"
+  VILLAGER: "Dân làng"
+  WANDERING_TRADER: "Thương nhân lang thang"
+  WOLF: "Sói"
+
+  # Hostile Mobs
+  BLAZE: "Quỷ lửa"
+  BOGGED: "Bộ xương đầm lầy"
+  BREEZE: "Breeze"
+  CAVE_SPIDER: "Nhện hang"
+  CREAKING: "Creaking"
+  CREEPER: "Creeper"
+  DROWNED: "Thây ma chết đuối"
+  ELDER_GUARDIAN: "Hộ vệ cao niên"
+  ENDERMAN: "Enderman"
+  ENDERMITE: "Endermite"
+  EVOKER: "Pháp sư gọi hồn"
+  GHAST: "Ghast"
+  GUARDIAN: "Hộ vệ"
+  HOGLIN: "Hoglin"
+  HUSK: "Thây ma sa mạc"
+  MAGMA_CUBE: "Khối dung nham"
+  PHANTOM: "Bóng ma"
+  PIGLIN: "Piglin"
+  PIGLIN_BRUTE: "Piglin hung bạo"
+  PILLAGER: "Kẻ cướp"
+  RAVAGER: "Quái thú cướp bóc"
+  SHULKER: "Shulker"
+  SILVERFISH: "Cá bạc"
+  SKELETON: "Bộ xương"
+  SKELETON_HORSE: "Ngựa xương"
+  SLIME: "Slime"
+  SPIDER: "Nhện"
+  STRAY: "Bộ xương lang thang"
+  VEX: "Hồn ma nhỏ"
+  VINDICATOR: "Kẻ biện hộ"
+  WARDEN: "Warden"
+  WITCH: "Phù thủy"
+  WITHER_SKELETON: "Bộ xương Wither"
+  ZOGLIN: "Zoglin"
+  ZOMBIE: "Thây ma"
+  ZOMBIE_HORSE: "Ngựa thây ma"
+  ZOMBIE_VILLAGER: "Dân làng thây ma"
+  ZOMBIFIED_PIGLIN: "Piglin thây ma"

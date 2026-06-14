@@ -1,0 +1,168 @@
+# SmartSpawner – messages.yml
+# Each entry supports: message, title, subtitle, action_bar, sound, enabled.
+#
+#   MESSAGE STRUCTURE:
+#   message_name:               # Unique identifier for the message
+#     enabled: true/false       # Enable or disable this entire message (default: true if not specified)
+#     message: "Text content"   # Main chat message (optional)
+#     title: "Title text"       # Title display (optional)
+#     subtitle: "Subtitle"      # Subtitle display (optional)
+#     action_bar: "Text"        # Action bar text (optional)
+#     sound: sound.effect       # Sound to play (optional)
+#
+#   KEY FEATURES:
+#   - If "enabled: false" is set, none of the components will be sent to the player
+#   - If multiple components are present (message, title, action_bar, sound), all will be sent
+#   - All components are optional - you can use any combination as needed
+#   - The "message" field is not required and can be omitted if you only want other components
+
+prefix: '&#3498dbSᴍᴀʀᴛSᴘᴀᴡɴᴇʀ &8⏩ &r'
+
+missing_message_key:
+  message: '&#FF4444Thiếu khóa thông báo: &f{key}'
+
+# ──────────────────────────────────────────────────────
+#              Player Interaction (General)
+# ──────────────────────────────────────────────────────
+spawner_activated:
+  message: 'Spawner đã được&a kích hoạt. &rBây giờ bạn có thể nhận vật phẩm và EXP.'
+  sound: block.beacon.activate
+
+spawner_protected:
+  message: '&#FF4444Spawner này đang được bảo vệ'
+  action_bar: '&#FF4444Spawner này đang được bảo vệ'
+  sound: block.note_block.pling
+
+inventory_full:
+  message: '&#FF4444Túi đồ của bạn đã đầy.'
+  sound: block.note_block.pling
+
+spawner_storage_empty:
+  message: '&#FF4444Kho của spawner đang trống.'
+  sound: block.note_block.pling
+
+action_in_progress:
+  message: '&#F0C857Đã có một thao tác đang diễn ra. Vui lòng chờ.'
+  action_bar: '&#F0C857Đang thực hiện thao tác. Vui lòng chờ.'
+  sound: block.note_block.pling
+
+action_failed:
+  message: '&#FF4444Thao tác thất bại. Vui lòng thử lại.'
+  action_bar: '&#FF4444Thao tác thất bại. Vui lòng thử lại.'
+  sound: block.note_block.pling
+
+# ──────────────────────────────────────────────────────
+#             Spawner - Main GUI Interactions
+# ──────────────────────────────────────────────────────
+no_exp:
+  message: '&#FF4444Không có EXP để nhận'
+  sound: block.note_block.pling
+
+exp_collected:
+  message: 'Bạn đã nhận &a{exp} &fđiểm kinh nghiệm.'
+  action_bar: '&a+{exp} EXP'
+  sound: entity.experience_orb.pickup
+
+exp_collected_with_mending:
+  message: 'Bạn đã nhận &a{exp} &fđiểm kinh nghiệm. &c{exp_mending} &fđã được dùng để sửa đồ bằng Mending.'
+  action_bar: '&a+{exp} EXP &f| &c-{exp_mending} đã dùng cho Mending'
+  sound: entity.experience_orb.pickup
+
+# ──────────────────────────────────────────────────────
+#            Spawner - Storage GUI Interactions
+# ──────────────────────────────────────────────────────
+click_too_fast:
+  message: '&#FF4444Bạn đang nhấp quá nhanh.'
+  sound: block.note_block.bass
+
+# ──────────────────────────────────────────────────────
+#         Spawner - Stacker GUI Interaction
+# ──────────────────────────────────────────────────────
+spawner_stacker_minimum_reached:
+  message: '&#FF4444Đã đạt giới hạn tối thiểu. &f{amount} &csẽ vẫn được xếp chồng.'
+  sound: block.note_block.pling
+
+spawner_cannot_remove_last:
+  action_bar: '&#FF4444Bạn không thể gỡ spawner cuối cùng.'
+  sound: block.note_block.pling
+
+spawner_insufficient_quantity:
+  action_bar: '&#FF4444Không đủ spawner: &f{amountAvailable}&c/&f{amountChange}'
+  sound: block.note_block.pling
+
+stacker_drop_blocked:
+  message: '&#FF4444Menu xếp chồng bị tắt khi spawner này có tỉ lệ rơi.'
+  sound: block.note_block.pling
+
+# ──────────────────────────────────────────────────────
+#             Spawner - Stack Interaction
+# ──────────────────────────────────────────────────────
+spawner_different:
+  message: '&#FF4444Các spawner phải cùng loại để xếp chồng.'
+  action_bar: '&#FF4444Các spawner phải cùng loại.'
+  sound: block.note_block.pling
+
+spawner_stack_full:
+  action_bar: '&#FF4444Giới hạn xếp chồng tối đa: &f{max}'
+  sound: block.note_block.pling
+
+spawner_stack_success:
+  action_bar: '&aBạn đã xếp chồng thành công &f{amount} &aspawner.'
+  sound: entity.player.levelup
+
+# ──────────────────────────────────────────────────────
+#             Spawner - Egg Interaction
+# ──────────────────────────────────────────────────────
+entity_changed:
+  message: 'Spawner đã đổi thành &e{entity}&f.'
+  action_bar: '&fSpawner đã đổi thành &e{entity}&f.'
+  sound: entity.player.levelup
+
+# ──────────────────────────────────────────────────────
+#             Spawner - Break Interaction
+# ──────────────────────────────────────────────────────
+break_no_permission:
+  message: '&#FF4444Bạn không có quyền phá spawner này.'
+  sound: entity.villager.no
+
+break_silk_touch:
+  message: '&#FF4444Bạn cần Silk Touch để phá spawner này.'
+  action_bar: '&#FF4444Bạn cần Silk Touch.'
+  sound: item.shield.block
+
+break_tool_required:
+  message: '&#FF4444Bạn không thể phá spawner bằng công cụ này.'
+  action_bar: '&#FF4444Không thể phá spawner bằng công cụ này.'
+  sound: item.shield.block
+
+drop_failed:
+  message: '&#FF4444Lần này không may, spawner không rơi ra.'
+  action_bar: '&#FF4444Spawner không rơi ra.'
+  sound: block.note_block.pling
+
+sneak_break_blocked:
+  message: '&#FF4444Bạn không thể phá cả chồng khi spawner này có tỉ lệ rơi.'
+  action_bar: '&#FF4444Không thể phá cả chồng.'
+  sound: block.note_block.pling
+
+# ──────────────────────────────────────────────────────
+#              Sell Integration Messages
+# ──────────────────────────────────────────────────────
+no_sellable_items:
+  message: '&#FF4444Không tìm thấy vật phẩm có thể bán.'
+  sound: block.note_block.pling
+
+sell_success:
+  message: 'Bạn đã bán &e{amount} &fvật phẩm với giá &a${price}&f.'
+  action_bar: '&a+${price}'
+  sound: block.note_block.bell
+
+sell_and_exp_success:
+  message: 'Bạn đã bán &e{amount} &fvật phẩm với giá &a${price}&f và nhận &a{exp} &fEXP.'
+  action_bar: '&a+${price} &f| &a+{exp} EXP'
+  sound: block.note_block.bell
+
+sell_and_exp_success_with_mending:
+  message: 'Bạn đã bán &e{amount} &fvật phẩm với giá &a${price}&f, nhận &a{exp} &fEXP &f(&c{exp_mending} &fđã dùng cho Mending).'
+  action_bar: '&a+${price} &f| &a+{exp} EXP &f(&c-{exp_mending} Mending)'
+  sound: block.note_block.bell
