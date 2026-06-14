@@ -3,8 +3,8 @@ version: '${version}'
 main: github.nighter.smartspawner.SmartSpawner
 api-version: '1.21'
 description: "A GUI-based spawner plugin that generates items and experience without spawning mobs"
-authors: [ https://github.com/NighterDevelopment/SmartSpawner ]
-website: "https://nighterdevelopment.github.io/SmartSpawner/"
+authors: [ https://github.com/OpenVdra/SmartSpawner ]
+website: "https://openvdra.github.io/SmartSpawner/"
 folia-supported: true
 
 # Load order - POSTWORLD means after all worlds are loaded
@@ -82,11 +82,6 @@ dependencies:
       load: BEFORE
       required: false
       join-classpath: true
-    HuskClaims:
-      load: BEFORE
-      required: false
-      join-classpath: true
-
     # World Management Plugins
     Multiverse-Core:
       load: BEFORE

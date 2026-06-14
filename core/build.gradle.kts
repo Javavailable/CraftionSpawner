@@ -50,7 +50,6 @@ dependencies {
 
     implementation(platform("com.intellectualsites.bom:bom-newest:1.56"))
     compileOnly("com.intellectualsites.plotsquared:plotsquared-core")
-    compileOnly("net.william278.huskclaims:huskclaims-bukkit:1.5.10")
 
     compileOnly("org.projectlombok:lombok:1.18.46")
     annotationProcessor("org.projectlombok:lombok:1.18.46")
@@ -131,7 +130,7 @@ tasks.register("generateLanguageChangelog") {
         // ── 1. Fetch latest GitHub release tag ───────────────────────────────
         val githubVersion: String = try {
             val conn = URI.create(
-                "https://api.github.com/repos/NighterDevelopment/SmartSpawner/releases/latest"
+                "https://api.github.com/repos/OpenVdra/SmartSpawner/releases/latest"
             ).toURL().openConnection() as java.net.HttpURLConnection
             conn.requestMethod = "GET"
             conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
@@ -184,7 +183,7 @@ tasks.register("generateLanguageChangelog") {
             listOf(currentVersion, "v$currentVersion").firstOrNull { tag ->
                 try {
                     val tagConn = URI.create(
-                        "https://api.github.com/repos/NighterDevelopment/SmartSpawner/git/refs/tags/$tag"
+                        "https://api.github.com/repos/OpenVdra/SmartSpawner/git/refs/tags/$tag"
                     ).toURL().openConnection() as java.net.HttpURLConnection
                     tagConn.requestMethod = "GET"
                     tagConn.setRequestProperty("Accept", "application/vnd.github.v3+json")
@@ -260,7 +259,7 @@ tasks.register("generateLanguageChangelog") {
 
         // ── 5. Fetch the old language files from GitHub and diff ─────────────
         fun fetchRaw(tag: String, file: String): String? = try {
-            val url = "https://raw.githubusercontent.com/NighterDevelopment/" +
+            val url = "https://raw.githubusercontent.com/OpenVdra/" +
                       "SmartSpawner/$tag/core/src/main/resources/language/$locale/$file"
             val conn = URI.create(url).toURL().openConnection() as java.net.HttpURLConnection
             conn.requestMethod = "GET"
@@ -331,7 +330,7 @@ tasks.register("generateLanguageChangelog") {
             appendLine("── v$currentVersion ($today) $separator")
             appendLine()
             appendLine("  Summary: Version $currentVersion released")
-            appendLine("           Compare: https://github.com/NighterDevelopment/SmartSpawner/compare/$githubVersion...$toRef")
+            appendLine("           Compare: https://github.com/OpenVdra/SmartSpawner/compare/$githubVersion...$toRef")
             appendLine()
             appendLine(formatSection("ADDED",   addedPerFile))
             appendLine()

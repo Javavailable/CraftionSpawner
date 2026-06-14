@@ -6,9 +6,9 @@ description: Getting started with SmartSpawner API integration.
 
 ### Installation
 
-Add SmartSpawner API via [JitPack](https://jitpack.io/#NighterDevelopment/SmartSpawner/)
+Add SmartSpawner API via [JitPack](https://jitpack.io/#OpenVdra/SmartSpawner/)
 
-> **Latest Version:** [![Latest Release](https://img.shields.io/github/v/release/NighterDevelopment/SmartSpawner?label=version)](https://github.com/NighterDevelopment/SmartSpawner/releases/latest)
+> **Latest Version:** [![Latest Release](https://img.shields.io/github/v/release/OpenVdra/SmartSpawner?label=version)](https://github.com/OpenVdra/SmartSpawner/releases/latest)
 
 **Maven:**
 ```xml
@@ -18,7 +18,7 @@ Add SmartSpawner API via [JitPack](https://jitpack.io/#NighterDevelopment/SmartS
 </repository>
 
 <dependency>
-    <groupId>com.github.NighterDevelopment</groupId>
+    <groupId>com.github.OpenVdra</groupId>
     <artifactId>SmartSpawner</artifactId>
     <version>LATEST</version>
     <scope>provided</scope>
@@ -32,7 +32,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly 'com.github.NighterDevelopment:SmartSpawner:LATEST'
+    compileOnly 'com.github.OpenVdra:SmartSpawner:LATEST'
 }
 ```
 

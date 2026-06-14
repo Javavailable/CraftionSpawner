@@ -235,7 +235,7 @@ BAT:
 
 SmartSpawner includes comprehensive defaults based on Minecraft Wiki data, including custom head textures for all mobs.
 
-- **View Online:** [GitHub Repository](https://github.com/NighterDevelopment/smartspawner/blob/main/core/src/main/resources/spawners_settings.yml)
+- **View Online:** [GitHub Repository](https://github.com/OpenVdra/smartspawner/blob/main/core/src/main/resources/spawners_settings.yml)
 - **Auto-Regenerate:** Delete `spawners_settings.yml` and restart server
 
 ## Head Texture Notes

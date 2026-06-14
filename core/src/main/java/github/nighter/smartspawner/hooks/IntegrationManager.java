@@ -38,7 +38,6 @@ public class IntegrationManager {
     private boolean hasIridiumSkyblock = false;
     private boolean hasPlotSquared = false;
     private boolean hasResidence = false;
-    private boolean hasHuskClaims = false;
 
     // Integration plugin flags
     private boolean hasAuraSkills = false;
@@ -166,10 +165,6 @@ public class IntegrationManager {
             return residence != null && residence.isEnabled();
         }, true);
 
-        hasHuskClaims = checkPlugin("HuskClaims", () -> {
-            Plugin hc = Bukkit.getPluginManager().getPlugin("HuskClaims");
-            return hc != null && hc.isEnabled();
-        }, true);
     }
 
     private void checkIntegrationPlugins() {

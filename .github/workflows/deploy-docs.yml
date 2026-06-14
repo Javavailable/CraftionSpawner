@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'NighterDevelopment/SmartSpawner'
+    if: github.repository == 'OpenVdra/SmartSpawner'
     runs-on: ubuntu-latest
     env:
       DOCS_NODE_VERSION: '22'
@@ -89,7 +89,7 @@ jobs:
           path: ./docs/dist
 
   deploy:
-    if: github.repository == 'NighterDevelopment/SmartSpawner'
+    if: github.repository == 'OpenVdra/SmartSpawner'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

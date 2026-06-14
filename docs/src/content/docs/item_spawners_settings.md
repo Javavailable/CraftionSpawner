@@ -215,7 +215,7 @@ TOTEM_OF_UNDYING:
 
 SmartSpawner includes basic default configurations for common valuable items.
 
-- **View Online:** [GitHub Repository](https://github.com/NighterDevelopment/smartspawner/blob/main/core/src/main/resources/item_spawners_settings.yml)
+- **View Online:** [GitHub Repository](https://github.com/OpenVdra/smartspawner/blob/main/core/src/main/resources/item_spawners_settings.yml)
 - **Auto-Regenerate:** Delete `item_spawners_settings.yml` and restart server
 
 ## Head Texture Notes

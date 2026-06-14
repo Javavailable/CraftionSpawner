@@ -76,7 +76,7 @@ If you encounter issues:
 
 1. **Check console logs** for error messages
 2. **Join our Discord** for community support: [Discord](https://discord.gg/zrnyG4CuuT)
-3. **Report bugs** on GitHub: [Issues](https://github.com/NighterDevelopment/SmartSpawner/issues)
+3. **Report bugs** on GitHub: [Issues](https://github.com/OpenVdra/SmartSpawner/issues)
 
 <br>
 <br>

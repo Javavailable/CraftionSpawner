@@ -545,7 +545,6 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
             if (integrationManager.isHasIridiumSkyblock())   map.put("IridiumSkyblock", 1);
             if (integrationManager.isHasPlotSquared())       map.put("PlotSquared", 1);
             if (integrationManager.isHasResidence())         map.put("Residence", 1);
-            if (integrationManager.isHasHuskClaims())        map.put("HuskClaims", 1);
             if (integrationManager.isHasMinePlots())         map.put("MinePlots", 1);
             if (integrationManager.isHasSimpleClaimSystem()) map.put("SimpleClaimSystem", 1);
             if (map.isEmpty()) map.put("None", 1);

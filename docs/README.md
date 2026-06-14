@@ -31,7 +31,7 @@ SmartSpawner is a feature-rich plugin that simplifies and enhances the managemen
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/NighterDevelopment/SmartSpawner.git
+   git clone https://github.com/OpenVdra/SmartSpawner.git
    cd SmartSpawner/docs
    ```
 
@@ -126,8 +126,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support and Contact
 
-- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/NighterDevelopment/SmartSpawner/issues)
-- **Discussions**: Join community discussions on [Discord Server](https://dsc.gg/nighterdevelopment)
+- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/OpenVdra/SmartSpawner/issues)
+- **Discussions**: Join community discussions on [Discord Server](https://dsc.gg/openvdra)
 
 For questions about the SmartSpawner plugin itself, please refer to the main plugin repository or community channels.
 

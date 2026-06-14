@@ -35,7 +35,7 @@ For developers interested in integrating with SmartSpawner, visit our [Developer
 ## Building
 
 ```bash
-git clone https://github.com/NighterDevelopment/smartspawner.git
+git clone https://github.com/OpenVdra/smartspawner.git
 cd SmartSpawner
 ./gradlew build
 ```
@@ -53,8 +53,8 @@ The compiled JAR will be available in `build/libs/`
 
 ## Support
 
-- **Issues & Bug Reports:** [GitHub Issues](https://github.com/NighterDevelopment/smartspawner/issues)
-- **Discord Community:** [Join our Discord](https://dsc.gg/nighterdevelopment)
+- **Issues & Bug Reports:** [GitHub Issues](https://github.com/OpenVdra/smartspawner/issues)
+- **Discord Community:** [Join our Discord](https://dsc.gg/openvdra)
 
 ## Statistics
 

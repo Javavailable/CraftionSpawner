@@ -2,7 +2,7 @@ name: SmartSpawner
 version: '${version}'
 main: github.nighter.smartspawner.SmartSpawner
 api-version: '1.21'
-authors: [ https://github.com/NighterDevelopment/SmartSpawner ]
+authors: [ https://github.com/OpenVdra/SmartSpawner ]
 folia-supported: true
 softdepend:
   # Bedrock Support Plugins
@@ -28,7 +28,6 @@ softdepend:
   - minePlots
   - PlotSquared
   - Residence
-  - HuskClaims
 
   # World Management Plugins
   - Multiverse-Core

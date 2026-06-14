@@ -31,7 +31,6 @@ SmartSpawner respects all major protection plugins to ensure proper permissions 
 - **[SimpleClaimSystem](https://modrinth.com/plugin/simpleclaimsystem)** - **[📖 Setup Guide](/integrations/simpleclaimsystem)**
 - **[Residence](https://www.spigotmc.org/resources/residence-1-7-10-up-to-1-21.11480/)**
 - **[MinePlots](https://builtbybit.com/resources/mineplots.21646/)**
-- **[HuskClaims](https://www.spigotmc.org/resources/huskclaims.122347/)** - **[📖 Setup Guide](/integrations/huskclaims)**
 
 ## World Management Systems
 Multi-world compatibility ensures spawners work across different worlds:

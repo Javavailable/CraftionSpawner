@@ -23,8 +23,8 @@ export default defineConfig({
 				maxHeadingLevel: 2,
 			},
 			social: [
-				{ icon: 'github', label: 'GitHub', href: 'https://github.com/NighterDevelopment/SmartSpawner' },
-				{ icon: 'discord', label: 'Discord', href: 'https://dsc.gg/nighterdevelopment' },
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/OpenVdra/SmartSpawner' },
+				{ icon: 'discord', label: 'Discord', href: 'https://dsc.gg/openvdra' },
 			],
 			components: {
 				Footer: './src/overrides/Footer.astro',
@@ -64,7 +64,6 @@ export default defineConfig({
 								{ label: 'MythicMobs', slug: 'integrations/mythicmobs' },
 								{ label: 'SuperiorSkyblock2', slug: 'integrations/superiorskyblock2' },
 								{ label: 'SimpleClaimSystem', slug: 'integrations/simpleclaimsystem' },
-								{ label: 'HuskClaims', slug: 'integrations/huskclaims' },
 							],
 						},
 					],
