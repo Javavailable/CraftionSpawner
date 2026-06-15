@@ -20,6 +20,9 @@ public class Config {
     @Getter(AccessLevel.NONE)
     private static volatile Config instance;
 
+    // Special key inside natural_spawner.drop_chance that applies to every spawner type
+    private static final String DEFAULT_DROP_CHANCE_KEY = "default";
+
     // Performance settings
     private final boolean approximateLoot;
     private final int approximationThreshold;
@@ -50,6 +53,8 @@ public class Config {
     private final Set<Material> requiredTools;
     @Getter(AccessLevel.NONE)
     private final Map<EntityType, Double> naturalSpawnerDropChances;
+    @Getter(AccessLevel.NONE)
+    private final double naturalSpawnerDefaultDropChance;
 
     private Config(FileConfiguration config, Logger logger) {
         // Performance settings
@@ -80,6 +85,7 @@ public class Config {
 
         // Parsed lookup data
         this.requiredTools = loadRequiredTools(config, logger);
+        this.naturalSpawnerDefaultDropChance = loadNaturalSpawnerDefaultDropChance(config, logger);
         this.naturalSpawnerDropChances = loadNaturalSpawnerDropChances(config, logger);
     }
 
@@ -100,7 +106,7 @@ public class Config {
     }
 
     public double getNaturalSpawnerDropChance(EntityType entityType) {
-        return naturalSpawnerDropChances.getOrDefault(entityType, 100.0);
+        return naturalSpawnerDropChances.getOrDefault(entityType, naturalSpawnerDefaultDropChance);
     }
 
     private static Set<Material> loadRequiredTools(FileConfiguration config, Logger logger) {
@@ -118,6 +124,16 @@ public class Config {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
+    private static double loadNaturalSpawnerDefaultDropChance(FileConfiguration config, Logger logger) {
+        double defaultDropChance = config.getDouble("natural_spawner.drop_chance." + DEFAULT_DROP_CHANCE_KEY, 100.0);
+        if (defaultDropChance < 0.0 || defaultDropChance > 100.0) {
+            logger.warning("Invalid drop chance for natural_spawner.drop_chance." + DEFAULT_DROP_CHANCE_KEY +
+                    ". Value must be between 0.0 and 100.0; using 100.0");
+            defaultDropChance = 100.0;
+        }
+        return defaultDropChance;
+    }
+
     private static Map<EntityType, Double> loadNaturalSpawnerDropChances(FileConfiguration config, Logger logger) {
         ConfigurationSection section = config.getConfigurationSection("natural_spawner.drop_chance");
         if (section == null) {
@@ -126,6 +142,11 @@ public class Config {
 
         Map<EntityType, Double> loadedDropChances = new EnumMap<>(EntityType.class);
         for (String entityName : section.getKeys(false)) {
+            // The "default" key sets the drop chance for all spawner types and is handled separately.
+            if (entityName.equalsIgnoreCase(DEFAULT_DROP_CHANCE_KEY)) {
+                continue;
+            }
+
             EntityType entityType;
             try {
                 entityType = EntityType.valueOf(entityName.toUpperCase());
