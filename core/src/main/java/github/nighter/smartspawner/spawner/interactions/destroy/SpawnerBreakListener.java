@@ -495,19 +495,14 @@ public class SpawnerBreakListener implements Listener {
         }
 
         if (spawner.getVirtualInventory().getUsedSlots() > 0) {
-            // Serialize final deletion behind sell completion to avoid delete/modify races.
-            // Wrap callback to ensure deletion only happens if sell succeeds:
-            // applySellResult checks if items were actually removed.
-            plugin.getSpawnerSellManager().sellAllItems(player, spawner, () -> {
-                // After sell completes, check if spawner still has items:
-                // If items remain, sell failed (API cancel or economy error), don't cleanup.
-                if (spawner.getVirtualInventory().getUsedSlots() > 0) {
-                    // Sell was cancelled/failed - skip cleanup to avoid item loss
-                    return;
-                }
-                // Safe to cleanup - all items were successfully sold
-                onSellComplete.run();
-            });
+            // Serialize the spawner removal behind sell completion to avoid delete/modify races
+            // with the async sell task. The break itself must always proceed afterwards: auto-sell
+            // is a best-effort bonus, so a sell that removes nothing (items have no sell value, the
+            // API event cancelled it, or the economy deposit failed) must not block the player from
+            // breaking the spawner - just like a normal break, any remaining stored items are gone
+            // once the spawner is removed. sellAllItems guarantees the callback runs exactly once
+            // on the spawner's region/main thread.
+            plugin.getSpawnerSellManager().sellAllItems(player, spawner, onSellComplete);
             return true;
         }
 
