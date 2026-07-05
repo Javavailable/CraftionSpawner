@@ -18,13 +18,17 @@ This baseline explicitly makes no runtime, configuration, branding, API, databas
 - **Root Gradle Project:** Contains the main build configurations and subproject declarations (`SmartSpawner`).
 - **Shaded Plugin JAR Output:** The final shaded plugin JAR is produced at `core/build/libs/SmartSpawner-1.7.0.1.jar` via the `shadowJar` task.
 
-## Build Requirements
-- **JDK:** 25
+## Build Verification
+- **JDK:** 25.0.3+9
 - **Gradle:** Wrapper 9.6.0
-- **Supported Ranges:** Paper/Folia 1.21+ (Folia is explicitly supported)
+- **Supported Ranges:**
+  - Minecraft versions: 1.21.5 - 26.1.2
+  - Server software: Paper, Folia, or compatible forks
+  - Java: 25+
 
 **Verified Build Command:**
 `./gradlew clean build`
+*(Note: Build failed due to upstream missing dependency `com.iridium:IridiumSkyblock:4.1.4`. No tests existed to run. Shaded JAR was not generated. Live Paper/Folia/Luminol smoke testing remains pending.)*
 
 ## Upstream Synchronization
 Recommended future workflow for syncing upstream updates:
