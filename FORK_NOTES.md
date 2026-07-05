@@ -28,7 +28,7 @@ This baseline explicitly makes no runtime, configuration, branding, API, databas
 
 **Verified Build Command:**
 `./gradlew clean build`
-*(Note: Build failed due to upstream missing dependency `com.iridium:IridiumSkyblock:4.1.4`. No tests existed to run. Shaded JAR was not generated. Live Paper/Folia/Luminol smoke testing remains pending.)*
+*(Note: `./gradlew clean build` was attempted with JDK 25.0.3+9 and Gradle 9.6.0. The API module compiled, but the core build stopped because Gradle could not resolve `com.iridium:IridiumSkyblock:4.1.4` from the repositories configured by the upstream baseline. The root cause has not yet been classified as a removed artifact, changed coordinate, repository outage, or local/network issue. Tests were not run because the build failed before test execution. No shaded plugin JAR or SHA-256 was produced. Live Paper/Folia/Luminol testing remains pending.)*
 
 ## Upstream Synchronization
 Recommended future workflow for syncing upstream updates:
