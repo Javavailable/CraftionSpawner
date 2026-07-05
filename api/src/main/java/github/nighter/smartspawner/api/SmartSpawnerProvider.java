@@ -5,18 +5,30 @@ import org.bukkit.plugin.Plugin;
 
 /**
  * Utility class to get the SmartSpawnerAPI instance.
+ *
+ * <p>Resolves the CraftionSpawner runtime plugin first, then falls back to the legacy
+ * {@code SmartSpawner} plugin name for backward compatibility.
  */
 public class SmartSpawnerProvider {
 
-    private static final String PLUGIN_NAME = "SmartSpawner";
+    private static final String PRIMARY_PLUGIN_NAME = "CraftionSpawner";
+    private static final String LEGACY_PLUGIN_NAME = "SmartSpawner";
 
     /**
      * Gets the SmartSpawnerAPI instance.
      *
-     * @return the API instance, or null if SmartSpawner is not loaded
+     * @return the API instance, or null if neither CraftionSpawner nor SmartSpawner is loaded
      */
     public static SmartSpawnerAPI getAPI() {
-        Plugin plugin = Bukkit.getPluginManager().getPlugin(PLUGIN_NAME);
+        SmartSpawnerAPI api = resolve(PRIMARY_PLUGIN_NAME);
+        if (api != null) {
+            return api;
+        }
+        return resolve(LEGACY_PLUGIN_NAME);
+    }
+
+    private static SmartSpawnerAPI resolve(String pluginName) {
+        Plugin plugin = Bukkit.getPluginManager().getPlugin(pluginName);
 
         if (plugin == null) {
             return null;
