@@ -24,15 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * routers before the unconsumed remainder is committed to internal virtual storage.
  *
  * <p>Used by BOTH loot-commit paths in {@link SpawnerLootGenerator} (normal and pre-generated) so
- * routing behavior is identical. This service:
- * <ul>
- *   <li>Deep-clones the batch and every router input/output at the API boundary.</li>
- *   <li>Runs routers in the registry's deterministic snapshot order.</li>
- *   <li>Gives each router only the current remaining batch.</li>
- *   <li>Never routes experience, manual actions, or already-stored contents.</li>
- *   <li>Is fail-open: a throwing/malformed router is ignored for the batch (bounded warning) and
- *       the full current remainder is preserved.</li>
- * </ul>
+ * routing behavior is identical. Deep-clones the batch and every router input/output at the API
+ * boundary, runs routers in the registry's deterministic snapshot order, never routes experience,
+ * and is fail-open (a throwing/malformed router is ignored for the batch with a bounded warning and
+ * the full current remainder is preserved).
  */
 public class SpawnerOutputRoutingService {
 
@@ -48,7 +43,8 @@ public class SpawnerOutputRoutingService {
     }
 
     /**
-     * @return {@code true} if at least one router is registered
+     * @return {@code true} if at least one router is currently registered. This is a hint only; the
+     * authoritative per-pass information is {@link RoutingOutcome#attempted()} from {@link #route}.
      */
     public boolean hasActiveRouters() {
         return registry.hasRouters();
@@ -60,10 +56,12 @@ public class SpawnerOutputRoutingService {
     public static final class RoutingOutcome {
         private final List<ItemStack> remaining;
         private final boolean consumedAny;
+        private final boolean attempted;
 
-        RoutingOutcome(List<ItemStack> remaining, boolean consumedAny) {
+        RoutingOutcome(List<ItemStack> remaining, boolean consumedAny, boolean attempted) {
             this.remaining = remaining;
             this.consumedAny = consumedAny;
+            this.attempted = attempted;
         }
 
         /**
@@ -79,6 +77,16 @@ public class SpawnerOutputRoutingService {
         public boolean consumedAny() {
             return consumedAny;
         }
+
+        /**
+         * @return {@code true} only when the generated remainder was non-empty, the exact immutable
+         * snapshot used for this pass contained at least one router, and at least one router
+         * invocation was actually attempted. Derived from the same snapshot used for routing (never
+         * from a separate {@code hasActiveRouters()} read).
+         */
+        public boolean attempted() {
+            return attempted;
+        }
     }
 
     /**
@@ -86,17 +94,19 @@ public class SpawnerOutputRoutingService {
      *
      * @param spawner   the owning spawner (used only to build a read-only DTO)
      * @param generated the newly generated items for this cycle
-     * @return the unconsumed remainder and whether any external consumption occurred
+     * @return the unconsumed remainder, whether any external consumption occurred, and whether a
+     *         router pass was actually attempted against a non-empty snapshot
      */
     public RoutingOutcome route(SpawnerData spawner, List<ItemStack> generated) {
         List<RegisteredRouter> snapshot = registry.getSnapshot();
         List<ItemStack> remaining = deepClone(generated);
 
         if (snapshot.isEmpty() || remaining.isEmpty()) {
-            return new RoutingOutcome(remaining, false);
+            return new RoutingOutcome(remaining, false, false);
         }
 
         final long originalTotal = totalQuantity(remaining);
+        boolean attempted = false;
 
         for (RegisteredRouter entry : snapshot) {
             if (remaining.isEmpty()) {
@@ -107,6 +117,9 @@ public class SpawnerOutputRoutingService {
             SpawnerOutputContext context = new SpawnerOutputContext(
                     SmartSpawnerAPIImpl.convertToDTO(spawner),
                     remaining);
+
+            // A router invocation is now being attempted against this non-empty snapshot.
+            attempted = true;
 
             SpawnerOutputResult result;
             try {
@@ -162,7 +175,7 @@ public class SpawnerOutputRoutingService {
         }
 
         boolean consumedAny = totalQuantity(remaining) < originalTotal;
-        return new RoutingOutcome(remaining, consumedAny);
+        return new RoutingOutcome(remaining, consumedAny, attempted);
     }
 
     private void warn(NamespacedKey key, String detail) {

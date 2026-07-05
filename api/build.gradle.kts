@@ -11,16 +11,25 @@ dependencies {
 
 // S3: the public API module is published as Java 21 bytecode (class-file major version 65) so that
 // Java 21 consumers (e.g. CraftionFarmer, which builds on Temurin Java 21) can use it. The core/plugin
-// module stays on Java 25 and shades these Java 21 API classes. This override is applied after the
-// root allprojects configuration, so it wins for the api module only. Do not use Java 22+ language or
-// API features in this module.
+// module stays on Java 25 and shades these Java 21 API classes. Registered in afterEvaluate so this
+// release override runs after the root allprojects configuration and deterministically wins for the
+// api module only. Do not use Java 22+ language or API features in this module.
 val apiJavaVersion = 21
 java {
     sourceCompatibility = JavaVersion.toVersion(apiJavaVersion)
     targetCompatibility = JavaVersion.toVersion(apiJavaVersion)
 }
-tasks.withType<JavaCompile>().configureEach {
-    options.release.set(apiJavaVersion)
+afterEvaluate {
+    tasks.withType<JavaCompile>().configureEach {
+        options.release.set(apiJavaVersion)
+    }
+}
+
+// Match the core module: do not let Javadoc doclint fail the build (the api module has no
+// dedicated doclint configuration otherwise, and `build` runs javadocJar -> javadoc).
+tasks.withType<Javadoc>().configureEach {
+    options.encoding = "UTF-8"
+    (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
 }
 
 tasks.test {

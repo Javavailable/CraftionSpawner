@@ -28,16 +28,25 @@ This baseline explicitly makes no runtime, configuration, branding, API, databas
 
 **Verified Build Command:**
 `./gradlew clean build`
+*(Note: `./gradlew clean build` was attempted with JDK 25.0.3+9 and Gradle 9.6.0. The API module compiled, but the core build stopped because Gradle could not resolve `com.iridium:IridiumSkyblock:4.1.4` from the repositories configured by the upstream baseline. The root cause has not yet been classified as a removed artifact, changed coordinate, repository outage, or local/network issue. Tests were not run because the build failed before test execution. No shaded plugin JAR or SHA-256 was produced. Live Paper/Folia/Luminol testing remains pending.)*
 
 ## S0.1 Build Resolution
 
 - **Previous Coordinate:** `com.iridium:IridiumSkyblock:4.1.4`
+- **Failure Observed During S0:** `com.iridium:IridiumSkyblock:4.1.4` could not be resolved from the repositories configured by the upstream baseline during S0.
 - **Replacement Coordinate:** `maven.modrinth:iridiumskyblock:4.1.4`
 - **Repository:** Modrinth Maven repository (`https://api.modrinth.com/maven`)
+- **Legitimacy:** IridiumSkyblock 4.1.4 is available through the official Modrinth project, and Modrinth’s Maven endpoint exposes it reliably.
+- **Java Integration:** The existing Iridium integration compiles without Java source changes against that artifact.
 - **JDK Version:** 25.0.3+9
 - **Gradle Version:** 9.6.0
-- **Tests:** `test`, `api:test`, `core:test` tasks reported `NO-SOURCE` at that time.
+- **Successful Commands:**
+  - `./gradlew clean build --refresh-dependencies`
+  - `./gradlew clean build`
+- **Tests:** `test`, `api:test`, `core:test` tasks reported `NO-SOURCE` (no tests executed because there are no test sources).
 - **Generated Shaded JAR:** `core/build/libs/SmartSpawner-1.7.0.1.jar`
+- **Byte Size:** 1869972 bytes
+- **SHA-256:** 71d08a9b8843f5ae533e83cf39e66ef4cad07a77f5fd1f5e3e395c5a9ab9fc43
 - Live Paper/Folia/Luminol testing remains pending.
 
 ## Upstream Synchronization
@@ -48,15 +57,17 @@ git checkout main
 git pull --ff-only origin main
 git merge --ff-only upstream/main
 ```
-Non-fast-forward upstream updates must be handled through a dedicated sync branch and reviewed PR, not force-pushed directly to `main`.
+Non-fast-forward upstream updates must be handled through a dedicated sync branch and reviewed PR, not force-pushed directly to `main`. Example branch name: `chore/sync-upstream-<version>`.
 
 ## License and Attribution
 - Upstream copyright and attribution must remain.
 - GPL requirements must continue to be followed.
 - `LICENSE` files must not be removed.
+- Redistributed modified builds must comply with the upstream license.
 - The API POM’s MIT metadata differs from the root GPLv3 declaration and requires later review.
 
 ## Planned Craftion Packages
+These are future planned packages (not implemented in S0):
 - S1 Craftion identity
 - S2 Skyllia protection integration
 - S3 output router API
@@ -66,24 +77,64 @@ Non-fast-forward upstream updates must be handled through a dedicated sync branc
 - S7 hardening and release
 
 ## S1A Project Identity
+
+- **Old Project Identity:** SmartSpawner (github.nighter)
+- **New Project Identity:** CraftionSpawner
 - **New Version:** 1.7.0.1-craftion.1
 - **New Gradle/Maven Group:** io.github.javavailable
+- **New JAR Name:** CraftionSpawner-1.7.0.1-craftion.1.jar
+- **New API Publication Coordinate:** io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.1
 - **Java packages and API class names:** intentionally retained
+- **Runtime plugin name:** intentionally retained temporarily
+- **Commands and permission nodes:** intentionally unchanged
+- **Data folder and persistent keys:** intentionally unchanged
+- **Full runtime identity migration:** deferred to S1B
+- **Full Craftion language/GUI localization:** deferred to a later package
+- **Upstream attribution:** preserved
 
 ## S1B Runtime Identity
+
 - Runtime plugin name: CraftionSpawner
 - Version: 1.7.0.1-craftion.2
-- Primary command: `/craftionspawner`; aliases `/cspawner`, `/spawner`, `/smartspawner`, `/ss`
-- Retained permissions: `smartspawner.*`; retained PDC namespace: `smartspawner`
-- Upstream updater and bStats: Disabled.
+- Primary command: `/craftionspawner`
+- Aliases: `/cspawner`, `/spawner`, `/smartspawner`, `/ss`
+- Retained permissions: `smartspawner.*`
+- Retained PDC namespace: `smartspawner`
+- Legacy folder migration: Safely moves `plugins/SmartSpawner` to `plugins/CraftionSpawner` if the new folder does not exist or is completely empty. Fails safely without deletion if both exist.
+- Upstream updater: Disabled.
+- Upstream bStats: Disabled.
+- Java packages and API class names: Retained.
+- Localization: Full Craftion language and GUI localization remains pending.
 
 ## S2A Skyllia Protection
-- **Skyllia Version:** fr.euphyllia.skyllia:api:3.0-158 (commit daf64687d6cac9c252227c60cd402d9f6f132287)
+
+- **Skyllia Version:** fr.euphyllia.skyllia:api:3.0-158
+- **Inspected Commit:** daf64687d6cac9c252227c60cd402d9f6f132287
+- **Public API Used:** `SkylliaAPI.getIslandByChunk(int, int)`, `island.isInside(Location)`, `SkylliaAPI.getPermissionsManager().hasPermission(...)`, `SkylliaAPI.getPermissionRegistry().getIfPresent(...)`
 - **Protected Actions:** PLACE, BREAK, OPEN, STACK, CHANGE_TYPE
+- **Permission Mapping:**
+  - PLACE / STACK -> `skyllia:block.place`
+  - BREAK -> `skyllia:block.break`
+  - OPEN / CHANGE_TYPE -> `skyllia:block.interact`
 - **Bypass Permission:** `smartspawner.bypass.skyllia`
+- **Boundary Behavior:** Confirms exact island boundary via `island.isInside(location)`. Abstains if not inside the island.
+- **Absent/Outside-island Behavior:** Leaves existing behavior unchanged (ABSTAIN)
+- **API Failure Behavior:** Exception before valid island: ABSTAIN. Exception after island confirmed: DENY. Missing permission node: DENY with rate-limited warning.
+- **Synchronous Lookup Limitation:** `SkylliaAPI.getIslandByChunk` calls `getIslandByRegion` which performs a synchronous JDBC database query on cold cache misses. This limitation is noted; event cancellations rely on Skyllia natively cancelling `BlockPlaceEvent` and `PlayerInteractEvent` where applicable, allowing the plugin to ignore them via `ignoreCancelled = true`.
+- **Deferred Tasks:** S2B cleanup remains deferred.
 
 ## S2B Skyllia Island Cleanup
-- Bounded, race-safe cleanup on confirmed island deletion across runtime indexes and YAML/SQLite/MariaDB persistence, with atomic removal claims, expected-instance detach, and tombstone durability.
+
+- **Async Handling:** `SkyblockDeleteEvent` is asynchronous and pre-delete. The cleanup service schedules a delayed Bukkit/Folia async task to wait for the actual `isDisable()` state, retrying up to 10 times at 20-tick intervals.
+- **Deletion Confirmation:** Deletion is only processed if `isDisable()` returns true. If unconfirmed, no cleanup executes.
+- **Deduplication:** Jobs are deduplicated via a `pendingDeletions` ConcurrentHashMap.newKeySet(), kept until every deferred retry completes/aborts (via `CompletableFuture.whenComplete`).
+- **Exact Boundary Matching:** Iterates over a snapshot of spawners, requiring `SkylliaAPI.isWorldSkyblock(world)` and `island.isInside(spawnerLocation)` to capture only the targeted spawners.
+- **Data-Only Cleanup:** Safe data-only detach via `spawnerManager.removeSpawnerDataOnly(id, expected)` (expected-instance conditional) strips references without modifying physical blocks or forcing unloaded chunks into memory. Never sets blocks to AIR, never drops items/XP, never pays money.
+- **Atomic removal claim:** `SpawnerData.tryBeginRemoval()`/`isRemovalPending()`/`cancelRemoval()` make selling and removal mutually exclusive.
+- **Locking:** Non-blocking `SpawnerLocationLockManager` location lock; `removeLock` is not called from the cleanup path (periodic cleanup reclaims it).
+- **Storage Modes:** Supports the active persistent storage method (YAML/SQLite/MariaDB) via `spawnerManager.markSpawnerDeleted`; deletion tombstones win over stale modifications; YAML and database flush snapshots are requeued on failure.
+- **Attempts/Timing:** Exactly 10 total processing attempts, 20 ticks apart; no sleeps/blocking; shutdown cancels deferred retries.
+- **Inspected Skyllia version:** `3.0-158`, exact commit `daf64687d6cac9c252227c60cd402d9f6f132287`.
 
 ## S3 Output Router API
 
@@ -92,17 +143,20 @@ Non-fast-forward upstream updates must be handled through a dedicated sync branc
 - **New public package:** `github.nighter.smartspawner.api.output` (`SpawnerOutputRouter`, `SpawnerOutputContext`, `SpawnerOutputResult`, `SpawnerOutputRouterRegistry`), exposed via `SmartSpawnerAPI.getOutputRouterRegistry()`.
 - **Registration:** collision-safe Bukkit `NamespacedKey` + deterministic integer order + router. Lower order first, ties by key string; duplicate keys return `false` and never replace; thread-safe; routing uses a stable immutable snapshot.
 - **Item-only routing:** Only newly generated item output is routed; experience always uses the existing stored-XP path. Manual withdrawals, selling, drop-all, breaking and already-stored contents are never routed. Unconsumed remainder falls through to internal virtual storage with the existing slot-capacity limiting.
-- **CraftionFarmer bridge:** deferred to S4 (out of scope).
+- **CraftionFarmer bridge:** deferred to S4 (out of scope). Not compatible/verified until the API JAR bytecode major version is confirmed by CI.
 
-### S3 hardening (fix: harden output router commit safety)
+### S3 hardening
 
-- **Defensive DTO:** `SpawnerDataDTO` now clones the supplied `Location` in its constructor and `getLocation()` returns a fresh clone (Lombok getter disabled for the field), so a router can never mutate the real internal spawner location. The output context otherwise exposes only immutable/enum/primitive values and deeply cloned, unmodifiable item lists — no internal mutable-object leakage.
-- **Removal/routing race elimination:** the single shared commit helper acquires the shared `SpawnerLocationLockManager` location lock (non-blocking) BEFORE any router runs and holds it across router execution, XP commit, remainder insertion, `lastSpawnTime`, capacity update, GUI/hologram update and persistence marking. It checks BOTH removal systems — S2B `SpawnerData.isRemovalPending()` and `SpawnerRemovalService.isRemovalPending(spawner)` (which stays claimed even while its own location lock is temporarily released) — plus exact-instance identity by ID and location. Skyllia cleanup and normal removal cannot detach the spawner mid-commit. `removeLock()` is never called from the generation path. Acquisition order: lootGenerationLock → location lock → dataLock → inventoryLock; all non-blocking `tryLock` (no blocking `lock()`, sleeps, `join()` or `Future.get()`).
-- **Timing before side effects:** the data lock (needed for `lastSpawnTime`) is acquired before any router is invoked, so external consumption is never followed by a failed late timing lock; `lastSpawnTime` advances exactly once and no router observes the same cycle twice.
-- **Full-capacity storm prevention:** a richer commit result distinguishes router-pass-attempted, external consumption, internal insertion and XP change. When a non-empty batch is legitimately presented to an active router snapshot, the cycle timer advances once even if nothing was consumed/inserted — preserving the configured spawn interval and preventing per-tick router callbacks against permanently full storage, without ever claiming false external consumption.
-- **Pre-generated durability:** the pre-generated commit builds owned clones once and retries the SAME clones in a bounded (max 5 attempts, 2 ticks apart), non-blocking manner only on transient lock failure (before any router runs), so the already-cleared batch is neither dropped nor routed twice.
-- **API footguns removed:** `SpawnerOutputResult.passThrough(null)` and `remaining(null)` now throw `NullPointerException`; `consumeAll()` is the only explicit full-consumption factory.
-- **Provider safety:** `SmartSpawnerProvider` returns null when the plugin is missing, disabled, not a `SmartSpawnerPlugin`, or exposes no API; it resolves `CraftionSpawner` first, then legacy `SmartSpawner`.
-- **API Java compatibility:** the `api` module is compiled to Java 21 bytecode (class-file major version 65) so `craftionspawner-api` is consumable by Java 21 builds (CraftionFarmer/S4). Core/plugin remains Java 25 (major version 69) and shades the Java 21 API. No Java 22+ features are used in the API module.
-- **Tests:** JUnit 5 regression tests were added (api: `SpawnerOutputResultTest`, `SpawnerDataDTOTest`, `ApiBytecodeVersionTest`; core: `SpawnerOutputRouterRegistryImplTest`). Deeper routing/removal/timing scenarios need a full server (MockBukkit) harness and are covered by design; they are not asserted as plain unit tests.
+- **Defensive DTO:** `SpawnerDataDTO` clones the supplied `Location` in its constructor and `getLocation()` returns a fresh clone (Lombok getter disabled for the field), so a router can never mutate the real internal spawner location. Other context values are enums/primitives/String plus deeply cloned, unmodifiable item lists.
+- **Removal/routing race elimination:** one shared commit helper acquires the shared `SpawnerLocationLockManager` location lock (non-blocking) before any router runs and holds it across the whole commit; it checks BOTH `SpawnerData.isRemovalPending()` and `SpawnerRemovalService.isRemovalPending(spawner)` plus exact-instance identity by ID and location. `removeLock()` is never called from the generation path.
+- **API footguns removed:** `SpawnerOutputResult.passThrough(null)` and `remaining(null)` throw `NullPointerException`; `consumeAll()` is the only explicit full-consumption factory.
+- **Provider safety:** `SmartSpawnerProvider` returns null when the plugin is missing, disabled, not a `SmartSpawnerPlugin`, or exposes no API; resolves `CraftionSpawner` first, then legacy `SmartSpawner`.
+
+### S3 completion (fix: complete output router hardening)
+
+- **Pre-generated durability on exhaustion:** the pre-generated commit builds owned clones once and retries the SAME clones in a bounded (max 5 attempts, 2 ticks apart), non-blocking manner only on a transient lock failure that occurs before any router runs. On exhaustion the batch is NOT dropped: if the exact instance is still current and not pending removal, the item+XP batch is atomically requeued/merged into an internal `SpawnerData.PreGeneratedLootBatch` pending-commit holder (never overwriting a newer batch) and flushed by the next generation commit; a single rate-limited warning is emitted. Stale/removed spawners abort without restoring. The batch is never routed twice and never lost to transient lock contention.
+- **Non-blocking inventory lock:** the generation commit now acquires `inventoryLock.tryLock()` (non-blocking) BEFORE any router runs when an item batch is possible; if unavailable it returns `LOCK_UNAVAILABLE` without invoking routers or mutating XP/items/timing. Internal insertion uses `SpawnerData.addItemsAndUpdateSellValueWhileLocked(...)` (caller owns the lock) instead of the blocking `addItemsAndUpdateSellValue()`. Enforced lock order: `lootGenerationLock -> location lock -> dataLock -> inventoryLock -> router invocation -> XP/item/timer commit`; all four acquisition points are non-blocking `tryLock`.
+- **Accurate routing-attempt tracking:** `RoutingOutcome` now exposes `attempted()`, derived from the exact immutable snapshot used by `route()` (true only when the remainder was non-empty, the snapshot contained >=1 router, and >=1 invocation was attempted). The cycle-timer/storm decision uses `attempted()` (kept separate from `consumedAny()`), not a separate `hasActiveRouters()` read.
+- **API Java compatibility:** the `api` module is compiled to Java 21 bytecode (class-file major version 65, release override applied in `afterEvaluate`); core/plugin remains Java 25 (major version 69) and shades the Java 21 API. The api module now also suppresses Javadoc doclint (matching core) so `javadocJar`/`javadoc` cannot fail the build. Compatibility is asserted by CI artifact inspection, not by Gradle configuration text alone.
+- **Tests:** api `SpawnerOutputResultTest`, `SpawnerDataDTOTest`, `ApiBytecodeVersionTest`; core `SpawnerOutputRouterRegistryImplTest`. Routing-attempt semantics with real `ItemStack`s, pre-generated exhaustion, and commit locking require a full server (MockBukkit) harness that the project does not have; they are design-reviewed and deferred to final-RC integration testing rather than asserted as fake unit tests.
 - **Testing:** final integrated runtime testing is deferred to the release-candidate phase; no live testing was performed for this package.
