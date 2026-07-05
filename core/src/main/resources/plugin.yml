@@ -1,8 +1,11 @@
-name: SmartSpawner
+name: CraftionSpawner
+provides: [ SmartSpawner ]
 version: '${version}'
 main: github.nighter.smartspawner.SmartSpawner
 api-version: '1.21'
-authors: [ https://github.com/OpenVdra/SmartSpawner ]
+authors: [ https://github.com/OpenVdra/SmartSpawner, Javavailable ]
+website: "https://github.com/Javavailable/CraftionSpawner"
+description: "CraftionSpawner spawner management and integration fork"
 folia-supported: true
 softdepend:
   # Bedrock Support Plugins
@@ -44,22 +47,22 @@ softdepend:
   - MythicMobs
 
 commands:
-  smartspawner:
-    description: Main command for SmartSpawner plugin
-    usage: /smartspawner [reload|give|list|hologram|prices|clear|near|set|language|gui_layout] [args...]
-    aliases: [ ss, spawner ]
+  craftionspawner:
+    description: Main command for CraftionSpawner plugin
+    usage: /craftionspawner [reload|give|list|hologram|prices|clear|near|set|language|gui_layout] [args...]
+    aliases: [ cspawner, spawner, smartspawner, ss ]
     permission: smartspawner.command.use
-    permission-message: "You don't have permission to use SmartSpawner commands!"
+    permission-message: "ʙᴜ ᴋᴏᴍᴜᴛ ɪᴄɪɴ ʏᴇᴛᴋɪɴ ʏᴏᴋ"
 
 permissions:
   # Main command permission
   smartspawner.command.use:
-    description: Allow access to SmartSpawner commands
+    description: Allow access to CraftionSpawner commands
     default: op
 
   # Subcommand permissions
   smartspawner.command.reload:
-    description: Permission to reload SmartSpawner plugin
+    description: Permission to reload CraftionSpawner plugin
     default: op
 
   smartspawner.command.give:
@@ -87,15 +90,15 @@ permissions:
     default: op
 
   smartspawner.command.set:
-    description: Allow setting SmartSpawner stack size, range, and delay
+    description: Allow setting CraftionSpawner stack size, range, and delay
     default: op
 
   smartspawner.command.language:
-    description: Allow changing the active SmartSpawner language
+    description: Allow changing the active CraftionSpawner language
     default: op
 
   smartspawner.command.gui_layout:
-    description: Allow changing the active SmartSpawner GUI layout
+    description: Allow changing the active CraftionSpawner GUI layout
     default: op
 
   # Feature permissions

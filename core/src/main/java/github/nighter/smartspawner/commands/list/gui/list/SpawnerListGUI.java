@@ -37,7 +37,7 @@ public class SpawnerListGUI implements Listener {
         this.messageService = plugin.getMessageService();
         this.spawnerManager = plugin.getSpawnerManager();
         this.listSubCommand = plugin.getListSubCommand();
-        this.worldNameKey = new NamespacedKey(plugin, "world_name");
+        this.worldNameKey = github.nighter.smartspawner.utils.NamespacedKeyUtil.create("world_name");
     }
 
     @EventHandler

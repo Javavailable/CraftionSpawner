@@ -28,6 +28,7 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import github.nighter.smartspawner.utils.NamespacedKeyUtil;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -49,7 +50,7 @@ public class ListSubCommand extends BaseSubCommand {
         this.messageService = plugin.getMessageService();
         this.userPreferenceCache = plugin.getUserPreferenceCache();
         this.spawnerManagementGUI = new SpawnerManagementGUI(plugin);
-        this.worldNameKey = new NamespacedKey(plugin, "world_name");
+        this.worldNameKey = NamespacedKeyUtil.create("world_name");
     }
 
     @Override

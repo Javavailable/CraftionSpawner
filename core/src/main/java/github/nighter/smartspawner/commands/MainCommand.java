@@ -45,15 +45,23 @@ public class MainCommand {
 
     // Build the main command with all subcommands
     public LiteralCommandNode<CommandSourceStack> buildCommand() {
-        return buildCommandWithName("smartspawner");
+        return buildCommandWithName("craftionspawner");
     }
 
-    // Build the alias command
+    // Build the alias commands
     public LiteralCommandNode<CommandSourceStack> buildAliasCommand() {
-        return buildCommandWithName("spawner");
+        return buildCommandWithName("cspawner");
     }
 
     public LiteralCommandNode<CommandSourceStack> buildAliasCommand2() {
+        return buildCommandWithName("spawner");
+    }
+
+    public LiteralCommandNode<CommandSourceStack> buildAliasCommand3() {
+        return buildCommandWithName("smartspawner");
+    }
+
+    public LiteralCommandNode<CommandSourceStack> buildAliasCommand4() {
         return buildCommandWithName("ss");
     }
 

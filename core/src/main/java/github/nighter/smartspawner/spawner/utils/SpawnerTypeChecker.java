@@ -3,6 +3,7 @@ package github.nighter.smartspawner.spawner.utils;
 import github.nighter.smartspawner.SmartSpawner;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import github.nighter.smartspawner.utils.NamespacedKeyUtil;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -19,8 +20,8 @@ public class SpawnerTypeChecker {
      * @param plugin The SmartSpawner plugin instance
      */
     public static void init(SmartSpawner plugin) {
-        VANILLA_SPAWNER_KEY = new NamespacedKey(plugin, "vanilla_spawner");
-        ITEM_SPAWNER_KEY = new NamespacedKey(plugin, "item_spawner_material");
+        VANILLA_SPAWNER_KEY = NamespacedKeyUtil.create("vanilla_spawner");
+        ITEM_SPAWNER_KEY = NamespacedKeyUtil.create("item_spawner_material");
     }
 
     /**

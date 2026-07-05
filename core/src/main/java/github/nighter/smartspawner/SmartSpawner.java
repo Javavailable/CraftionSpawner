@@ -180,6 +180,20 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
     public void onEnable() {
         long startTime = System.currentTimeMillis();
         instance = this;
+        
+        // --- CraftionSpawner Data Folder Migration ---
+        java.io.File oldFolder = new java.io.File(getDataFolder().getParentFile(), "SmartSpawner");
+        if (oldFolder.exists() && oldFolder.isDirectory() && !getDataFolder().exists()) {
+            getLogger().info("Migrating legacy SmartSpawner data folder...");
+            try {
+                java.nio.file.Files.move(oldFolder.toPath(), getDataFolder().toPath());
+                getLogger().info("Legacy data folder migrated successfully.");
+            } catch (java.io.IOException e) {
+                getLogger().log(Level.SEVERE, "Failed to migrate legacy data folder! Configuration might be fresh.", e);
+            }
+        }
+        // ---------------------------------------------
+
         Config.load(this);
 
         // Initialize plugin integrations
@@ -230,7 +244,7 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
         setUpHopperHandler();
         initializeListeners();
         this.apiImpl = new SmartSpawnerAPIImpl(this);
-        this.updateChecker = new UpdateChecker(this);
+        // this.updateChecker = new UpdateChecker(this); // Disabled for CraftionSpawner fork
     }
 
     private void initializeServices() {
@@ -484,6 +498,8 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
     }
 
     private void setupBtatsMetrics() {
+        // bStats disabled for CraftionSpawner fork
+        /*
         Metrics metrics = new Metrics(this, 24822);
 
         // --- Feature toggles ---
@@ -533,6 +549,7 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
             if (map.isEmpty()) map.put("None", 1);
             return map;
         }));
+        */
     }
 
     /** Bucket a spawner/stack count into a human-readable range label (supports up to ~100M). */
