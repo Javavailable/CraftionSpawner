@@ -1,107 +1,211 @@
-name: Gradle build
+name: Build
 
 on:
   push:
-    branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - 'LICENSE'
-      - 'docs/**'
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - 'LICENSE'
-      - 'docs/**'
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   workflow_dispatch:
 
-# Cancel in-progress runs for the same workflow and branch
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      pull-requests: write
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 0
 
-      - name: Set up JDK 25
-        uses: actions/setup-java@v4
+      - name: Set up Java
+        uses: actions/setup-java@v5
         with:
-          java-version: '25'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: "25"
+
+      - name: Print Java version
+        run: |
+          java -version
+          javac -version
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
-          add-job-summary: 'on-failure'
+        uses: gradle/actions/setup-gradle@v6
 
-      - name: Make Gradle wrapper executable
+      - name: Make wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Extract version information
-        id: extract_version
+      - name: Print Gradle version
+        run: ./gradlew --version --no-daemon
+
+      - name: Source hygiene
         run: |
-          VERSION=$(grep 'version = "' build.gradle.kts | head -n 1 | awk -F'"' '{print $2}')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          COMMIT_SHA_SHORT=$(git rev-parse --short HEAD)
-          echo "COMMIT_SHA_SHORT=$COMMIT_SHA_SHORT" >> $GITHUB_ENV
-          echo "commit_sha_short=$COMMIT_SHA_SHORT" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION (Commit: $COMMIT_SHA_SHORT)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            if ! git rev-parse --verify "$BASE_SHA^{commit}" >/dev/null 2>&1; then
+              echo "Error: Base PR commit $BASE_SHA cannot be resolved."
+              exit 1
+            fi
+            if ! git rev-parse --verify "$HEAD_SHA^{commit}" >/dev/null 2>&1; then
+              echo "Error: Head PR commit $HEAD_SHA cannot be resolved."
+              exit 1
+            fi
+            git diff --check $BASE_SHA..$HEAD_SHA
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.sha }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify "$BEFORE^{commit}" >/dev/null 2>&1; then
+              if git rev-parse --verify "$AFTER^^{commit}" >/dev/null 2>&1; then
+                BEFORE=$(git rev-parse "$AFTER^")
+              else
+                echo "No parent commit available. Skipping push hygiene check."
+                exit 0
+              fi
+            fi
+            if ! git rev-parse --verify "$AFTER^{commit}" >/dev/null 2>&1; then
+              echo "Error: Push commit $AFTER cannot be resolved."
+              exit 1
+            fi
+            git diff --check $BEFORE..$AFTER
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              git diff --check HEAD^..HEAD
+            else
+              echo "Explicit skip: No parent commit available for workflow_dispatch."
+              exit 0
+            fi
+          fi
 
-      - name: Build with Gradle
-        run: ./gradlew build --no-daemon --stacktrace
+      - name: Build
+        run: ./gradlew clean build --no-daemon --stacktrace
 
-      - name: Run tests
-        run: ./gradlew test --no-daemon --stacktrace
+      - name: Discover plugin JAR
+        id: discover
+        run: |
+          shopt -s nullglob
+          JARS=(core/build/libs/CraftionSpawner-*.jar)
+          VALID_JARS=()
+          for jar in "${JARS[@]}"; do
+            if [[ "$jar" == *"-sources.jar" ]] || [[ "$jar" == *"-javadoc.jar" ]] || [[ "$jar" == *"CraftionSpawnerJar-"* ]]; then
+              continue
+            fi
+            VALID_JARS+=("$jar")
+          done
 
-      - name: Generate Javadoc
-        run: ./gradlew javadoc --no-daemon
+          if [ ${#VALID_JARS[@]} -eq 0 ]; then
+            echo "Error: No matching plugin JAR found."
+            exit 1
+          elif [ ${#VALID_JARS[@]} -gt 1 ]; then
+            echo "Error: Found multiple plugin JARs: ${VALID_JARS[*]}"
+            exit 1
+          fi
 
-      - name: Upload SmartSpawner JAR
-        uses: actions/upload-artifact@v4
+          JAR_PATH="${VALID_JARS[0]}"
+          JAR_FILENAME=$(basename "$JAR_PATH")
+
+          echo "jar_path=$JAR_PATH" >> $GITHUB_OUTPUT
+          echo "jar_filename=$JAR_FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Artifact report
+        id: report
+        run: |
+          JAR_PATH="${{ steps.discover.outputs.jar_path }}"
+          JAR_FILENAME="${{ steps.discover.outputs.jar_filename }}"
+          JAR_SIZE=$(stat -c %s "$JAR_PATH")
+          JAR_SHA256=$(sha256sum "$JAR_PATH" | awk '{print $1}')
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          JAVA_VERSION=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}')
+          if [ -z "$JAVA_VERSION" ]; then
+            JAVA_VERSION=$(java -version 2>&1 | head -1 | awk '{print $3}' | tr -d '"')
+          fi
+          GRADLE_VERSION=$(./gradlew --version --quiet | grep Gradle | awk '{print $2}')
+
+          cat <<EOF > build-artifact-info.txt
+          Repository: ${{ github.repository }}
+          Event: ${{ github.event_name }}
+          Ref: ${{ github.ref }}
+          Commit SHA: ${{ github.sha }}
+          Java Version: $JAVA_VERSION
+          Gradle Version: $GRADLE_VERSION
+          JAR Filename: $JAR_FILENAME
+          Byte Size: $JAR_SIZE
+          SHA-256: $JAR_SHA256
+          EOF
+
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "jar_size=$JAR_SIZE" >> $GITHUB_OUTPUT
+          echo "jar_sha256=$JAR_SHA256" >> $GITHUB_OUTPUT
+          echo "java_version=$JAVA_VERSION" >> $GITHUB_OUTPUT
+          echo "gradle_version=$GRADLE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Skyllia shade audit
+        id: shade_audit
+        run: |
+          JAR_PATH="${{ steps.discover.outputs.jar_path }}"
+          LEAKED_PATHS=$(jar tf "$JAR_PATH" | grep '^fr/euphyllia/skyllia/' || true)
+          if [ -n "$LEAKED_PATHS" ]; then
+            echo "Error: Skyllia classes leaked into the shaded JAR:"
+            echo "$LEAKED_PATHS"
+            echo "audit_result=Failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "audit_result=Passed" >> $GITHUB_OUTPUT
+
+      - name: Tracked archive audit
+        id: archive_audit
+        run: |
+          BAD_ARCHIVES=$(git ls-files | grep -E '\.(tar\.gz|tgz|zip|jdk|bin)$' || true)
+          if [ -n "$BAD_ARCHIVES" ]; then
+            echo "Error: Found tracked archive files:"
+            echo "$BAD_ARCHIVES"
+            echo "audit_result=Failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "audit_result=Passed" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
         with:
-          name: SmartSpawner-${{ steps.extract_version.outputs.version }}
-          path: core/build/libs/SmartSpawner-${{ steps.extract_version.outputs.version }}.jar
-          retention-days: 90
-          if-no-files-found: error
-
-      - name: Upload API JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: SmartSpawner-API-${{ steps.extract_version.outputs.version }}
-          path: api/build/libs/*.jar
-          retention-days: 90
-          if-no-files-found: warn
-
-      - name: Upload Javadoc
-        uses: actions/upload-artifact@v4
-        with:
-          name: SmartSpawner-Javadoc-${{ steps.extract_version.outputs.version }}
-          path: core/build/docs/javadoc/**
-          retention-days: 30
-          if-no-files-found: warn
-
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports-${{ steps.extract_version.outputs.commit_sha_short }}
+          name: CraftionSpawner-${{ steps.report.outputs.short_sha }}
           path: |
-            **/build/reports/tests/**
-            **/build/test-results/**
-          retention-days: 7
-          if-no-files-found: ignore
+            ${{ steps.discover.outputs.jar_path }}
+            build-artifact-info.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Job summary
+        if: success()
+        run: |
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ## Build Summary
+
+          - **Event**: ${{ github.event_name }}
+          - **Commit SHA**: ${{ github.sha }}
+          - **Java Version**: ${{ steps.report.outputs.java_version }}
+          - **Gradle Version**: ${{ steps.report.outputs.gradle_version }}
+          - **Build Result**: Success
+          - **Plugin JAR Filename**: ${{ steps.discover.outputs.jar_filename }}
+          - **Byte Size**: ${{ steps.report.outputs.jar_size }} bytes
+          - **SHA-256**: ${{ steps.report.outputs.jar_sha256 }}
+          - **Skyllia Shade Audit**: ${{ steps.shade_audit.outputs.audit_result }}
+          - **Tracked Archive Audit**: ${{ steps.archive_audit.outputs.audit_result }}
+          - **Uploaded Artifact Name**: CraftionSpawner-${{ steps.report.outputs.short_sha }}
+          EOF
