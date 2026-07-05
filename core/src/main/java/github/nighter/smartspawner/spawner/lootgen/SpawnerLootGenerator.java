@@ -18,6 +18,7 @@ import org.bukkit.inventory.ItemStack;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SpawnerLootGenerator {
     private final SmartSpawner plugin;
@@ -34,6 +35,9 @@ public class SpawnerLootGenerator {
     // Rate-limited warnings for pre-gen exhaustion requeue events (per spawner ID).
     private final ConcurrentHashMap<String, Long> lastPreGenWarnById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<HandoffKey, PendingHandoff> pendingHandoffs = new ConcurrentHashMap<>();
+    private final Set<Scheduler.Task> pendingRetryTasks = ConcurrentHashMap.newKeySet();
+    private final Object pendingHandoffLock = new Object();
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final Scheduler.Task pendingHandoffDrainTask;
 
     /**
@@ -343,11 +347,16 @@ public class SpawnerLootGenerator {
      *   -&gt; shared location lock  (SpawnerLocationLockManager)
      *   -&gt; dataLock
      *   -&gt; inventoryLock (when an item batch is possible)
-     *   -&gt; router invocation
+     *   -&gt; router invocation / route-completed recovery point
      *   -&gt; XP / item / timer commit
      * </pre>
      * All four acquisition points are non-blocking {@code tryLock}. If any is unavailable, no
      * router runs and no state is mutated, making the status safe to retry.
+     *
+     * <p>Routing is computed before XP/item/timer mutation. Once routing or another irreversible
+     * side effect has happened, the original pending claim is never released; failures replace it
+     * with only the still-uncommitted recovery batch, preserving route-completed items so routers
+     * are not invoked twice for the same generated output.
      *
      * <p>The shared location lock serializes this entire commit against Skyllia cleanup and
      * ordinary/API/physical removal, preventing the spawner from being detached mid-commit.
@@ -364,7 +373,6 @@ public class SpawnerLootGenerator {
             return CommitStatus.LOCK_UNAVAILABLE;
         }
         SpawnerData.PendingCommitClaim pendingClaim = null;
-        boolean pendingClaimAcked = false;
         try {
             // Removal / stale-instance safety under the shared lock.
             if (isStaleOrRemoving(spawner)) {
@@ -392,92 +400,146 @@ public class SpawnerLootGenerator {
                 // Claim any requeued pre-generated batches and merge them with fresh loot. The
                 // pending entries remain in SpawnerData until this commit returns COMMITTED.
                 pendingClaim = spawner.claimPendingCommitBatches();
-                List<ItemStack> effectiveItems;
-                long effectiveExperience;
-                if (pendingClaim != null) {
-                    effectiveItems = new ArrayList<>();
-                    if (generatedItems != null) effectiveItems.addAll(generatedItems);
-                    effectiveItems.addAll(pendingClaim.getItems());
-                    effectiveExperience = saturatedAdd(experience, pendingClaim.getExperience());
-                } else {
-                    effectiveItems = generatedItems;
-                    effectiveExperience = experience;
-                }
-
-                boolean generatedItemsPresent = effectiveItems != null && !effectiveItems.isEmpty();
-
-                boolean xpChanged = false;
-                if (effectiveExperience > 0 && spawner.getSpawnerExp() < spawner.getMaxStoredExp()) {
-                    long currentExp = spawner.getSpawnerExp();
-                    long maxExp = spawner.getMaxStoredExp();
-                    long newExp = Math.min(saturatedAdd(currentExp, effectiveExperience), maxExp);
-                    if (newExp != currentExp) {
-                        spawner.setSpawnerExp(newExp);
-                        xpChanged = true;
-                    }
-                }
-
-                boolean externallyConsumed = false;
-                boolean routerAttempted = false;
-                boolean internallyInserted = false;
-
-                if (generatedItemsPresent) {
-                    List<ItemStack> remainder = effectiveItems;
-                    if (outputRoutingService != null && outputRoutingService.hasActiveRouters()) {
-                        SpawnerOutputRoutingService.RoutingOutcome outcome =
-                                outputRoutingService.route(spawner, effectiveItems);
-                        remainder = outcome.remaining();
-                        externallyConsumed = outcome.consumedAny();
-                        // attempted() is derived from the exact snapshot used by route() — never
-                        // from a separate hasActiveRouters() read.
-                        routerAttempted = outcome.attempted();
-                    }
-                    if (remainder != null && !remainder.isEmpty()) {
-                        int usedSlots = spawner.getVirtualInventory().getUsedSlots();
-                        int maxSlots = spawner.getMaxSpawnerLootSlots();
-                        if (usedSlots < maxSlots) {
-                            List<ItemStack> itemsToAdd = new ArrayList<>(remainder);
-                            int totalRequiredSlots = calculateRequiredSlots(itemsToAdd, spawner.getVirtualInventory());
-                            if (totalRequiredSlots > maxSlots) {
-                                itemsToAdd = limitItemsToAvailableSlots(itemsToAdd, spawner);
-                            }
-                            if (!itemsToAdd.isEmpty()) {
-                                // Caller already holds inventoryLock; use the locked variant to
-                                // avoid the blocking lock() call inside addItemsAndUpdateSellValue.
-                                spawner.addItemsAndUpdateSellValueWhileLocked(itemsToAdd);
-                                internallyInserted = true;
-                            }
+                SpawnerData.PendingCommitClaim claim = pendingClaim;
+                LootCommitTransaction.Result result = LootCommitTransaction.execute(new LootCommitTransaction.Context() {
+                    @Override
+                    public LootCommitTransaction.PendingInput pendingInput() {
+                        if (claim == null) {
+                            return LootCommitTransaction.PendingInput.none();
                         }
+                        return new LootCommitTransaction.PendingInput(
+                                true,
+                                claim.getUnroutedItems(),
+                                claim.getRouteCompletedItems(),
+                                claim.getExperience());
                     }
-                }
 
-                // Advance the cycle timer exactly once when something changed or a batch was
-                // genuinely presented to active routers. routerAttempted uses the snapshot-accurate
-                // outcome.attempted() — never a stale hasActiveRouters() read.
-                boolean advanceCycle = xpChanged || internallyInserted
-                        || externallyConsumed || routerAttempted;
-                if (!advanceCycle) {
+                    @Override
+                    public List<ItemStack> generatedItems() {
+                        return generatedItems;
+                    }
+
+                    @Override
+                    public long generatedExperience() {
+                        return experience;
+                    }
+
+                    @Override
+                    public long spawnTime() {
+                        return spawnTime;
+                    }
+
+                    @Override
+                    public boolean hasActiveRouters() {
+                        return outputRoutingService != null && outputRoutingService.hasActiveRouters();
+                    }
+
+                    @Override
+                    public SpawnerOutputRoutingService.RoutingOutcome route(List<ItemStack> items) {
+                        return outputRoutingService.route(spawner, items);
+                    }
+
+                    @Override
+                    public long currentExperience() {
+                        return spawner.getSpawnerExp();
+                    }
+
+                    @Override
+                    public long maxStoredExperience() {
+                        return spawner.getMaxStoredExp();
+                    }
+
+                    @Override
+                    public void setExperience(long experience) {
+                        spawner.setSpawnerExp(experience);
+                    }
+
+                    @Override
+                    public int usedSlots() {
+                        return spawner.getVirtualInventory().getUsedSlots();
+                    }
+
+                    @Override
+                    public int maxSlots() {
+                        return spawner.getMaxSpawnerLootSlots();
+                    }
+
+                    @Override
+                    public int requiredSlots(List<ItemStack> items) {
+                        return calculateRequiredSlots(items, spawner.getVirtualInventory());
+                    }
+
+                    @Override
+                    public List<ItemStack> limitToAvailableSlots(List<ItemStack> items) {
+                        return limitItemsToAvailableSlots(new ArrayList<>(items), spawner);
+                    }
+
+                    @Override
+                    public void insertItems(List<ItemStack> items) {
+                        // Caller already holds inventoryLock; use the locked variant to avoid the
+                        // blocking lock() call inside addItemsAndUpdateSellValue.
+                        spawner.addItemsAndUpdateSellValueWhileLocked(items);
+                    }
+
+                    @Override
+                    public void setLastSpawnTime(long spawnTime) {
+                        spawner.setLastSpawnTime(spawnTime);
+                    }
+
+                    @Override
+                    public void acknowledgePending() {
+                        spawner.ackPendingCommitClaim(claim);
+                    }
+
+                    @Override
+                    public void releasePending() {
+                        spawner.releasePendingCommitClaim(claim);
+                    }
+
+                    @Override
+                    public void replacePendingWithUnrouted(List<ItemStack> items, long experience) {
+                        spawner.replacePendingCommitClaim(claim, items, experience, false);
+                    }
+
+                    @Override
+                    public void replacePendingWithRouteCompleted(List<ItemStack> items, long experience) {
+                        spawner.replacePendingCommitClaim(claim, items, experience, true);
+                    }
+
+                    @Override
+                    public void queueUnrouted(List<ItemStack> items, long experience) {
+                        spawner.queuePendingCommitBatch(items, experience);
+                    }
+
+                    @Override
+                    public void queueRouteCompleted(List<ItemStack> items, long experience) {
+                        spawner.queueRouteCompletedPendingCommitBatch(items, experience);
+                    }
+
+                    @Override
+                    public void afterCommitted() {
+                        runPostCommitStep(spawner, "capacity refresh", spawner::updateCapacityStatus);
+                        runPostCommitStep(spawner, "GUI/hologram update", () -> handleGuiUpdates(spawner));
+                        runPostCommitStep(spawner, "persistence dirty marking",
+                                () -> spawnerManager.markSpawnerModified(spawner.getSpawnerId()));
+                    }
+
+                    @Override
+                    public void handlePostCommitFailure(Throwable throwable) {
+                        plugin.getLogger().warning("Post-commit output update failed for spawner "
+                                + spawner.getSpawnerId() + ": " + throwable.getMessage());
+                    }
+                });
+                if (result == LootCommitTransaction.Result.NOOP) {
                     return CommitStatus.NOOP;
                 }
-                spawner.setLastSpawnTime(spawnTime);
             } finally {
                 if (inventoryHeld) spawner.getInventoryLock().unlock();
                 spawner.getDataLock().unlock();
             }
 
-            // Side effects after releasing dataLock/inventoryLock, still under location lock.
-            spawner.updateCapacityStatus();
-            handleGuiUpdates(spawner);
-            spawnerManager.markSpawnerModified(spawner.getSpawnerId());
-            if (pendingClaim != null) {
-                spawner.ackPendingCommitClaim(pendingClaim);
-                pendingClaimAcked = true;
-            }
             return CommitStatus.COMMITTED;
         } finally {
-            if (pendingClaim != null && !pendingClaimAcked) {
-                spawner.releasePendingCommitClaim(pendingClaim);
-            }
             // Never call removeLock() from the generation path; the periodic cleanup task
             // reclaims unused locks so a second lock object can never be created for the location.
             lockManager.unlock(loc);
@@ -509,6 +571,15 @@ public class SpawnerLootGenerator {
 
         if (plugin.getConfig().getBoolean("hologram.enabled", false)) {
             spawner.updateHologramData();
+        }
+    }
+
+    private void runPostCommitStep(SpawnerData spawner, String step, Runnable action) {
+        try {
+            action.run();
+        } catch (Throwable throwable) {
+            plugin.getLogger().warning("Post-commit " + step + " failed for spawner "
+                    + spawner.getSpawnerId() + ": " + throwable.getMessage());
         }
     }
 
@@ -593,6 +664,9 @@ public class SpawnerLootGenerator {
      * routed twice.
      */
     public void addPreGeneratedLoot(SpawnerData spawner, List<ItemStack> items, long experience, long spawnTime) {
+        if (shuttingDown.get()) {
+            return;
+        }
         if ((items == null || items.isEmpty()) && experience == 0) {
             return;
         }
@@ -617,11 +691,17 @@ public class SpawnerLootGenerator {
 
     private void schedulePreGeneratedCommit(SpawnerData spawner, List<ItemStack> ownedItems,
                                              long experience, long spawnTime, int attempt) {
+        if (shuttingDown.get()) {
+            return;
+        }
         Location loc = spawner.getSpawnerLocation();
         if (loc == null) {
             return;
         }
         Scheduler.runLocationTask(loc, () -> {
+            if (shuttingDown.get()) {
+                return;
+            }
             if (!spawner.getLootGenerationLock().tryLock()) {
                 retryPreGeneratedCommit(spawner, ownedItems, experience, spawnTime, attempt);
                 return;
@@ -643,6 +723,9 @@ public class SpawnerLootGenerator {
 
     private void retryPreGeneratedCommit(SpawnerData spawner, List<ItemStack> ownedItems,
                                           long experience, long spawnTime, int attempt) {
+        if (shuttingDown.get()) {
+            return;
+        }
         if (attempt + 1 >= PREGEN_MAX_COMMIT_ATTEMPTS) {
             // Retry budget exhausted. Never silently discard the already-cleared batch:
             // merge the SAME owned clones into the generator-owned handoff queue. A single
@@ -651,9 +734,26 @@ public class SpawnerLootGenerator {
             queuePendingHandoff(spawner, ownedItems, experience);
             return;
         }
-        Scheduler.runTaskLaterAsync(
-                () -> schedulePreGeneratedCommit(spawner, ownedItems, experience, spawnTime, attempt + 1),
-                PREGEN_RETRY_DELAY_TICKS);
+        final Scheduler.Task[] taskRef = new Scheduler.Task[1];
+        Scheduler.Task task = Scheduler.runTaskLaterAsync(() -> {
+            Scheduler.Task taskToRemove = taskRef[0];
+            if (taskToRemove != null) {
+                pendingRetryTasks.remove(taskToRemove);
+            }
+            if (shuttingDown.get()) {
+                return;
+            }
+            schedulePreGeneratedCommit(spawner, ownedItems, experience, spawnTime, attempt + 1);
+        }, PREGEN_RETRY_DELAY_TICKS);
+        taskRef[0] = task;
+        if (shuttingDown.get()) {
+            task.cancel();
+        } else {
+            pendingRetryTasks.add(task);
+            if (shuttingDown.get() && pendingRetryTasks.remove(task)) {
+                task.cancel();
+            }
+        }
     }
 
     private void warnPreGenRequeue(SpawnerData spawner) {
@@ -668,6 +768,9 @@ public class SpawnerLootGenerator {
     }
 
     private void queuePendingHandoff(SpawnerData spawner, List<ItemStack> ownedItems, long experience) {
+        if (shuttingDown.get()) {
+            return;
+        }
         if (spawner == null || ((ownedItems == null || ownedItems.isEmpty()) && experience <= 0L)) {
             return;
         }
@@ -679,11 +782,19 @@ public class SpawnerLootGenerator {
 
         HandoffKey key = new HandoffKey(spawner);
         PendingHandoff handoff = new PendingHandoff(spawner, spawner.getSpawnerId(), location, ownedItems, experience);
-        pendingHandoffs.merge(key, handoff, PendingHandoff::merge);
+        synchronized (pendingHandoffLock) {
+            if (shuttingDown.get()) {
+                return;
+            }
+            pendingHandoffs.merge(key, handoff, PendingHandoff::merge);
+        }
         warnPreGenRequeue(spawner);
     }
 
     private void drainPendingHandoffs() {
+        if (shuttingDown.get()) {
+            return;
+        }
         if (pendingHandoffs.isEmpty()) {
             return;
         }
@@ -694,10 +805,17 @@ public class SpawnerLootGenerator {
         }
 
         for (Map.Entry<HandoffKey, PendingHandoff> entry : pendingHandoffs.entrySet()) {
+            if (shuttingDown.get()) {
+                return;
+            }
             PendingHandoff handoff = entry.getValue();
             Location location = handoff.location;
             if (location == null || location.getWorld() == null) {
-                pendingHandoffs.remove(entry.getKey(), handoff);
+                synchronized (pendingHandoffLock) {
+                    if (!shuttingDown.get()) {
+                        pendingHandoffs.remove(entry.getKey(), handoff);
+                    }
+                }
                 continue;
             }
 
@@ -706,13 +824,22 @@ public class SpawnerLootGenerator {
             }
 
             try {
+                if (shuttingDown.get()) {
+                    return;
+                }
                 if (!isCurrentExactInstance(handoff.spawner, handoff.spawnerId, location)) {
-                    pendingHandoffs.remove(entry.getKey(), handoff);
+                    synchronized (pendingHandoffLock) {
+                        if (!shuttingDown.get()) {
+                            pendingHandoffs.remove(entry.getKey(), handoff);
+                        }
+                    }
                     continue;
                 }
 
-                if (pendingHandoffs.remove(entry.getKey(), handoff)) {
-                    handoff.spawner.queuePendingCommitBatch(handoff.items, handoff.experience);
+                synchronized (pendingHandoffLock) {
+                    if (!shuttingDown.get() && pendingHandoffs.remove(entry.getKey(), handoff)) {
+                        handoff.spawner.queuePendingCommitBatch(handoff.items, handoff.experience);
+                    }
                 }
             } finally {
                 lockManager.unlock(location);
@@ -721,15 +848,25 @@ public class SpawnerLootGenerator {
     }
 
     public void shutdown() {
+        if (!shuttingDown.compareAndSet(false, true)) {
+            return;
+        }
         if (pendingHandoffDrainTask != null) {
             pendingHandoffDrainTask.cancel();
         }
 
-        int unresolved = pendingHandoffs.size();
-        if (unresolved > 0) {
-            plugin.getLogger().warning("Discarding " + unresolved
-                    + " unresolved pre-generated pending handoff batch(es) during shutdown.");
-            pendingHandoffs.clear();
+        for (Scheduler.Task task : pendingRetryTasks) {
+            task.cancel();
+        }
+        pendingRetryTasks.clear();
+
+        synchronized (pendingHandoffLock) {
+            int unresolved = pendingHandoffs.size();
+            if (unresolved > 0) {
+                plugin.getLogger().warning("Discarding " + unresolved
+                        + " unresolved pre-generated pending handoff batch(es) during shutdown.");
+                pendingHandoffs.clear();
+            }
         }
         lastPreGenWarnById.clear();
     }

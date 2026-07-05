@@ -912,10 +912,16 @@ public class SpawnerData {
     public static class PreGeneratedLootBatch {
         private final List<ItemStack> items;
         private final long experience;
+        private final boolean routeCompleted;
 
         PreGeneratedLootBatch(List<ItemStack> items, long experience) {
+            this(items, experience, false);
+        }
+
+        private PreGeneratedLootBatch(List<ItemStack> items, long experience, boolean routeCompleted) {
             this.items = Collections.unmodifiableList(deepCloneItems(items));
             this.experience = Math.max(0L, experience);
+            this.routeCompleted = routeCompleted;
         }
 
         public List<ItemStack> getItems() {
@@ -924,6 +930,10 @@ public class SpawnerData {
 
         public long getExperience() {
             return experience;
+        }
+
+        boolean isRouteCompleted() {
+            return routeCompleted;
         }
 
         boolean isEmpty() {
@@ -937,14 +947,27 @@ public class SpawnerData {
      */
     public static final class PendingCommitClaim extends PreGeneratedLootBatch {
         private final List<Long> batchIds;
+        private final List<ItemStack> unroutedItems;
+        private final List<ItemStack> routeCompletedItems;
 
-        private PendingCommitClaim(List<Long> batchIds, List<ItemStack> items, long experience) {
-            super(items, experience);
+        private PendingCommitClaim(List<Long> batchIds, List<ItemStack> unroutedItems,
+                                   List<ItemStack> routeCompletedItems, long experience) {
+            super(combineItems(unroutedItems, routeCompletedItems), experience);
             this.batchIds = Collections.unmodifiableList(new ArrayList<>(batchIds));
+            this.unroutedItems = Collections.unmodifiableList(deepCloneItems(unroutedItems));
+            this.routeCompletedItems = Collections.unmodifiableList(deepCloneItems(routeCompletedItems));
         }
 
         private List<Long> getBatchIds() {
             return batchIds;
+        }
+
+        public List<ItemStack> getUnroutedItems() {
+            return deepCloneItems(unroutedItems);
+        }
+
+        public List<ItemStack> getRouteCompletedItems() {
+            return deepCloneItems(routeCompletedItems);
         }
     }
 
@@ -954,22 +977,24 @@ public class SpawnerData {
      * locks or invokes routers.
      */
     public void queuePendingCommitBatch(List<ItemStack> items, long experience) {
-        PreGeneratedLootBatch batch = new PreGeneratedLootBatch(items, experience);
+        queuePendingCommitBatch(items, experience, false);
+    }
+
+    /**
+     * Queues a batch whose external routing already completed. These items must bypass routers on
+     * retry; only their internal insertion and XP/timer state may still need committing.
+     */
+    public void queueRouteCompletedPendingCommitBatch(List<ItemStack> items, long experience) {
+        queuePendingCommitBatch(items, experience, true);
+    }
+
+    private void queuePendingCommitBatch(List<ItemStack> items, long experience, boolean routeCompleted) {
+        PreGeneratedLootBatch batch = new PreGeneratedLootBatch(items, experience, routeCompleted);
         if (batch.isEmpty()) {
             return;
         }
         synchronized (pendingCommitLock) {
-            long id = nextPendingCommitBatchId++;
-            if (id == Long.MAX_VALUE) {
-                nextPendingCommitBatchId = 1L;
-            }
-            while (pendingCommitBatches.containsKey(id)) {
-                id = nextPendingCommitBatchId++;
-                if (id == Long.MAX_VALUE) {
-                    nextPendingCommitBatchId = 1L;
-                }
-            }
-            pendingCommitBatches.put(id, batch);
+            pendingCommitBatches.put(nextPendingCommitBatchId(), batch);
         }
     }
 
@@ -984,7 +1009,8 @@ public class SpawnerData {
             }
 
             List<Long> claimedIds = new ArrayList<>();
-            List<ItemStack> mergedItems = new ArrayList<>();
+            List<ItemStack> mergedUnroutedItems = new ArrayList<>();
+            List<ItemStack> mergedRouteCompletedItems = new ArrayList<>();
             long mergedExperience = 0L;
 
             for (Map.Entry<Long, PreGeneratedLootBatch> entry : pendingCommitBatches.entrySet()) {
@@ -995,7 +1021,11 @@ public class SpawnerData {
 
                 PreGeneratedLootBatch batch = entry.getValue();
                 claimedIds.add(batchId);
-                mergedItems.addAll(batch.getItems());
+                if (batch.isRouteCompleted()) {
+                    mergedRouteCompletedItems.addAll(batch.getItems());
+                } else {
+                    mergedUnroutedItems.addAll(batch.getItems());
+                }
                 mergedExperience = saturatedAdd(mergedExperience, batch.getExperience());
             }
 
@@ -1004,7 +1034,11 @@ public class SpawnerData {
             }
 
             claimedPendingCommitBatchIds.addAll(claimedIds);
-            return new PendingCommitClaim(claimedIds, mergedItems, mergedExperience);
+            return new PendingCommitClaim(
+                    claimedIds,
+                    mergedUnroutedItems,
+                    mergedRouteCompletedItems,
+                    mergedExperience);
         }
     }
 
@@ -1038,6 +1072,34 @@ public class SpawnerData {
         }
     }
 
+    /**
+     * Replaces an original pending claim with only the still-uncommitted recovery batch. Used once
+     * external routing or another irreversible side effect has occurred, so the original claim must
+     * never be released and replayed.
+     */
+    public void replacePendingCommitClaim(PendingCommitClaim claim, List<ItemStack> items,
+                                          long experience, boolean routeCompleted) {
+        if (claim == null) {
+            if (routeCompleted) {
+                queueRouteCompletedPendingCommitBatch(items, experience);
+            } else {
+                queuePendingCommitBatch(items, experience);
+            }
+            return;
+        }
+
+        PreGeneratedLootBatch replacement = new PreGeneratedLootBatch(items, experience, routeCompleted);
+        synchronized (pendingCommitLock) {
+            for (Long batchId : claim.getBatchIds()) {
+                pendingCommitBatches.remove(batchId);
+                claimedPendingCommitBatchIds.remove(batchId);
+            }
+            if (!replacement.isEmpty()) {
+                pendingCommitBatches.put(nextPendingCommitBatchId(), replacement);
+            }
+        }
+    }
+
     /** @return true if there is a pending pre-generated batch waiting to be committed. */
     public boolean hasPendingCommitBatch() {
         synchronized (pendingCommitLock) {
@@ -1063,6 +1125,28 @@ public class SpawnerData {
             }
         }
         return copy;
+    }
+
+    private static List<ItemStack> combineItems(List<ItemStack> first, List<ItemStack> second) {
+        List<ItemStack> combined = new ArrayList<>(
+                (first == null ? 0 : first.size()) + (second == null ? 0 : second.size()));
+        combined.addAll(deepCloneItems(first));
+        combined.addAll(deepCloneItems(second));
+        return combined;
+    }
+
+    private long nextPendingCommitBatchId() {
+        long id = nextPendingCommitBatchId++;
+        if (id == Long.MAX_VALUE) {
+            nextPendingCommitBatchId = 1L;
+        }
+        while (pendingCommitBatches.containsKey(id)) {
+            id = nextPendingCommitBatchId++;
+            if (id == Long.MAX_VALUE) {
+                nextPendingCommitBatchId = 1L;
+            }
+        }
+        return id;
     }
 
     private static long saturatedAdd(long a, long b) {
