@@ -16,12 +16,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class SkylliaIslandCleanupListener implements Listener {
 
     private final SmartSpawner plugin;
+    private final SkylliaHook hook;
     private final SkylliaIslandCleanupService cleanupService;
     private final Set<UUID> pendingDeletions = ConcurrentHashMap.newKeySet();
+    private volatile boolean shuttingDown = false;
 
-    public SkylliaIslandCleanupListener(SmartSpawner plugin) {
+    public SkylliaIslandCleanupListener(SmartSpawner plugin, SkylliaHook hook) {
         this.plugin = plugin;
+        this.hook = hook;
         this.cleanupService = new SkylliaIslandCleanupService(plugin);
+    }
+
+    public void shutdown() {
+        shuttingDown = true;
+        pendingDeletions.clear();
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -50,13 +58,20 @@ public class SkylliaIslandCleanupListener implements Listener {
 
     private void scheduleConfirmationTask(Island island, UUID islandId, AtomicInteger retries, int maxRetries, long delayTicks) {
         Scheduler.runTaskLaterAsync(() -> {
-            // If plugin disables, gracefully abort
-            if (!plugin.isEnabled()) {
+            // If plugin disables or shutting down, gracefully abort
+            if (shuttingDown || !plugin.isEnabled() || !hook.isEnabled() || hook.getSkylliaPlugin() == null || !hook.getSkylliaPlugin().isEnabled()) {
                 pendingDeletions.remove(islandId);
                 return;
             }
 
-            if (island.isDisable()) {
+            boolean isDisable = false;
+            try {
+                isDisable = island.isDisable();
+            } catch (Exception e) {
+                plugin.getLogger().warning("Exception while checking Skyllia island disable state for " + islandId + ": " + e.getMessage());
+            }
+
+            if (isDisable) {
                 // Confirmation successful, proceed with cleanup
                 plugin.getLogger().info("Island " + islandId + " disable confirmed. Beginning spawner cleanup...");
                 try {

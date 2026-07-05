@@ -8,6 +8,7 @@ import github.nighter.smartspawner.commands.list.gui.management.SpawnerManagemen
 import github.nighter.smartspawner.spawner.data.SpawnerManager;
 import github.nighter.smartspawner.spawner.properties.SpawnerData;
 import github.nighter.smartspawner.utils.BlockPos;
+import fr.euphyllia.skyllia.api.SkylliaAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -29,10 +30,12 @@ public class SkylliaIslandCleanupService {
         SpawnerManager spawnerManager = plugin.getSpawnerManager();
         List<SpawnerData> allSpawners = spawnerManager.getAllSpawners();
         Set<String> spawnersToRemove = new HashSet<>();
+        Set<SpawnerData> matchedSpawners = new HashSet<>();
 
-        int removedCount = 0;
+        int matchedCount = 0;
         int failedCount = 0;
 
+        // 1. Build a stable matched-spawner snapshot.
         for (SpawnerData spawner : allSpawners) {
             Location location = spawner.getSpawnerLocation();
             if (location == null || location.getWorld() == null) {
@@ -40,43 +43,21 @@ public class SkylliaIslandCleanupService {
             }
 
             try {
-                // Determine if this spawner is exactly inside the logical island bounds
+                if (!SkylliaAPI.isWorldSkyblock(location.getWorld())) {
+                    continue;
+                }
+
                 if (island.isInside(location)) {
                     spawnersToRemove.add(spawner.getSpawnerId());
-                    
-                    // 1. Mark generation stopped
+                    matchedSpawners.add(spawner);
+                    matchedCount++;
+
+                    // 2. Set each matched spawner stop flag.
                     spawner.getSpawnerStop().set(true);
-
-                    // 2. Prevent interactions and deactivate range checker
-                    if (plugin.getRangeChecker() != null) {
-                        plugin.getRangeChecker().deactivateSpawner(spawner);
-                    }
-
-                    // 3. Remove runtime references and locks
-                    plugin.getSpawnerLocationLockManager().removeLock(location);
-
-                    // 4. Remove holograms safely on location thread
-                    Scheduler.runLocationTask(location, spawner::removeHologram);
-
-                    // 5. Clean hopper tracking on location thread only if chunk loaded
-                    int chunkX = location.getBlockX() >> 4;
-                    int chunkZ = location.getBlockZ() >> 4;
-                    if (location.getWorld().isChunkLoaded(chunkX, chunkZ)) {
-                        Scheduler.runLocationTask(location, () -> {
-                            if (plugin.getHopperService() != null) {
-                                plugin.getHopperService().getTracker().removeBelowSpawner(location.getBlock());
-                            }
-                        });
-                    }
-
-                    // 6. Close viewing inventories (async-safe scheduling)
-                    closeRelatedInventories(spawner);
-
-                    removedCount++;
                 }
             } catch (Exception e) {
                 failedCount++;
-                plugin.getLogger().warning("Failed to clean up spawner " + spawner.getSpawnerId() + " during island deletion: " + e.getMessage());
+                plugin.getLogger().warning("Failed to match spawner " + spawner.getSpawnerId() + " during island deletion: " + e.getMessage());
             }
         }
 
@@ -84,24 +65,54 @@ public class SkylliaIslandCleanupService {
             return;
         }
 
-        // 7. Remove completely from all SpawnerManager indexes (data-only batch)
+        // 3. Atomically detach matched IDs from SpawnerManager indexes.
         spawnerManager.removeSpawnersDataOnly(spawnersToRemove);
 
-        // 8. Mark deleted in persistent storage
+        // 4. After detachment, schedule GUI, hologram and hopper cleanup.
+        for (SpawnerData spawner : matchedSpawners) {
+            Location location = spawner.getSpawnerLocation();
+
+            if (plugin.getRangeChecker() != null) {
+                plugin.getRangeChecker().deactivateSpawner(spawner);
+            }
+
+            plugin.getSpawnerLocationLockManager().removeLock(location);
+
+            Scheduler.runLocationTask(location, spawner::removeHologram);
+
+            int chunkX = location.getBlockX() >> 4;
+            int chunkZ = location.getBlockZ() >> 4;
+            if (location.getWorld().isChunkLoaded(chunkX, chunkZ)) {
+                Scheduler.runLocationTask(location, () -> {
+                    if (plugin.getHopperService() != null) {
+                        plugin.getHopperService().getTracker().removeBelowSpawner(location.getBlock()); // This requires block lookup
+                    }
+                });
+            }
+
+            closeRelatedInventories(spawner);
+        }
+
+        // 5. Mark all IDs deleted in storage.
         for (String id : spawnersToRemove) {
             spawnerManager.markSpawnerDeleted(id);
         }
 
-        plugin.getLogger().info(String.format("Skyllia island cleanup completed for %s. Removed: %d, Failed: %d", island.getId(), removedCount, failedCount));
+        // 6. Call spawnerStorage.flushChanges() exactly once.
+        plugin.getSpawnerStorage().flushChanges();
+
+        plugin.getLogger().info(String.format("Skyllia island cleanup queued for %s: matched %d, detached %d, failed %d", island.getId(), matchedCount, spawnersToRemove.size(), failedCount));
     }
 
     private void closeRelatedInventories(SpawnerData spawner) {
-        plugin.getSpawnerGuiViewManager().closeAllViewersInventory(spawner);
+        Scheduler.runTask(() -> {
+            plugin.getSpawnerGuiViewManager().closeAllViewersInventory(spawner);
 
-        String spawnerId = spawner.getSpawnerId();
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            Scheduler.runEntityTask(player, () -> closeManagementInventory(player, spawnerId));
-        }
+            String spawnerId = spawner.getSpawnerId();
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                Scheduler.runEntityTask(player, () -> closeManagementInventory(player, spawnerId));
+            }
+        });
     }
 
     private void closeManagementInventory(Player player, String spawnerId) {

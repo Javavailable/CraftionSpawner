@@ -43,6 +43,7 @@ public class SkylliaHook {
     private final SmartSpawner plugin;
     private volatile boolean enabled = false;
     private volatile boolean listenerRegistered = false;
+    private volatile SkylliaIslandCleanupListener cleanupListener;
     private volatile Plugin skylliaPlugin;
     private volatile PermissionSnapshot permissions;
     private final AtomicLong lastWarningTime = new AtomicLong(0);
@@ -66,7 +67,8 @@ public class SkylliaHook {
             permissions = new PermissionSnapshot();
             enabled = true;
             if (!listenerRegistered) {
-                plugin.getServer().getPluginManager().registerEvents(new SkylliaIslandCleanupListener(plugin), plugin);
+                cleanupListener = new SkylliaIslandCleanupListener(plugin, this);
+                plugin.getServer().getPluginManager().registerEvents(cleanupListener, plugin);
                 listenerRegistered = true;
             }
             plugin.getLogger().info("Skyllia integration initialized successfully!");
@@ -82,8 +84,18 @@ public class SkylliaHook {
         return enabled;
     }
 
+    public Plugin getSkylliaPlugin() {
+        return skylliaPlugin;
+    }
+
     public void reload() {
         initialize();
+    }
+
+    public void shutdown() {
+        if (cleanupListener != null) {
+            cleanupListener.shutdown();
+        }
     }
 
     public ProtectionDecision canInteract(Player player, Location location, SpawnerAction action) {

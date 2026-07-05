@@ -11,8 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SpawnerManager {
     private final SmartSpawner plugin;
     private final Map<String, SpawnerData> spawners = new ConcurrentHashMap<>();
-    private final Map<LocationKey, SpawnerData> locationIndex = new HashMap<>();
-    private final Map<String, Set<SpawnerData>> worldIndex = new HashMap<>();
+    private final Map<LocationKey, SpawnerData> locationIndex = new ConcurrentHashMap<>();
+    private final Map<String, Set<SpawnerData>> worldIndex = new ConcurrentHashMap<>();
     private final SpawnerStorage spawnerStorage;
     // Set to keep track of confirmed ghost spawners to avoid repeated checks
     private final Set<String> confirmedGhostSpawners = ConcurrentHashMap.newKeySet();
@@ -83,7 +83,7 @@ public class SpawnerManager {
 
         // Add to world index
         String worldName = spawner.getSpawnerLocation().getWorld().getName();
-        worldIndex.computeIfAbsent(worldName, k -> new HashSet<>()).add(spawner);
+        worldIndex.computeIfAbsent(worldName, k -> ConcurrentHashMap.newKeySet()).add(spawner);
 
         // Queue for saving
         spawnerStorage.queueSpawnerForSaving(id);
@@ -144,7 +144,7 @@ public class SpawnerManager {
 
         // Add to world index
         String worldName = spawner.getSpawnerLocation().getWorld().getName();
-        worldIndex.computeIfAbsent(worldName, k -> new HashSet<>()).add(spawner);
+        worldIndex.computeIfAbsent(worldName, k -> ConcurrentHashMap.newKeySet()).add(spawner);
     }
 
     public Set<SpawnerData> getSpawnersInWorld(String worldName) {
@@ -177,7 +177,7 @@ public class SpawnerManager {
      *
      * @param spawnerIds Set of spawner IDs to completely detach from active indexes.
      */
-    public synchronized void removeSpawnersDataOnly(Set<String> spawnerIds) {
+    public void removeSpawnersDataOnly(Set<String> spawnerIds) {
         for (String id : spawnerIds) {
             SpawnerData spawner = spawners.remove(id);
             if (spawner != null) {
