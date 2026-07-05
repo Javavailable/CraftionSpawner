@@ -74,7 +74,7 @@ public class SpawnerClickManager implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onSpawnerClick(PlayerInteractEvent event) {
         // Quick validation checks
         if (!isValidSpawnerInteraction(event)) {

@@ -164,7 +164,7 @@ public class SpawnerStackHandler {
     }
 
     private boolean hasStackPermissions(Player player, Location location) {
-        if (!CheckStackBlock.CanPlayerPlaceBlock(player, location)) {
+        if (!CheckStackBlock.CanPlayerPlaceBlock(player, location, true)) {
             messageService.sendMessage(player, "spawner_protected");
             return false;
         }

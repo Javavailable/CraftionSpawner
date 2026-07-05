@@ -32,4 +32,29 @@ public class CheckOpenMenu {
 
         return true;
     }
+
+    public static boolean CanPlayerChangeType(@NotNull final Player player, @NotNull Location location) {
+        if (player.isOp() || player.hasPermission("*")) return true;
+
+        IntegrationManager integrationManager = SmartSpawner.getInstance().getIntegrationManager();
+
+        if (integrationManager.isHasGriefPrevention() && !GriefPrevention.canPlayerOpenMenuOnClaim(player, location))
+            return false;
+        if (integrationManager.isHasWorldGuard() && !WorldGuard.canPlayerInteractInRegion(player, location)) return false;
+        if (integrationManager.isHasLands() && !Lands.CanPlayerInteractContainer(player, location)) return false;
+        if (integrationManager.isHasTowny() && !Towny.canPlayerInteractSpawner(player, location)) return false;
+        if (integrationManager.isHasSuperiorSkyblock2() && SuperiorSkyblock2.canPlayerOpenMenu(player, location)) return false;
+        if (integrationManager.isHasBentoBox() && !BentoBoxAPI.canPlayerOpenMenu(player, location)) return false;
+        if (integrationManager.isHasSimpleClaimSystem() && !SimpleClaimSystem.canPlayerOpenMenuOnClaim(player, location))
+            return false;
+        if (integrationManager.isHasSimpleClaimSystem2() && !SimpleClaimSystem2.canPlayerOpenMenuOnClaim(player, location))
+            return false;
+        if (integrationManager.isHasMinePlots() && !MinePlots.canPlayerOpenMenu(player, location)) return false;
+        if (integrationManager.isHasIridiumSkyblock() && !IridiumSkyblock.canPlayerOpenMenu(player, location)) return false;
+        if (integrationManager.isHasPlotSquared() && !PlotSquared.canInteract(player, location)) return false;
+        if (integrationManager.isHasResidence() && !Residence.canInteract(player, location)) return false;
+        if (integrationManager.isHasSkyllia() && integrationManager.getSkylliaHook().canInteract(player, location, SkylliaHook.SpawnerAction.CHANGE_TYPE) == SkylliaHook.ProtectionDecision.DENY) return false;
+
+        return true;
+    }
 }

@@ -8,7 +8,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 public class CheckStackBlock {
-    public static boolean CanPlayerPlaceBlock(@NotNull final Player player, @NotNull Location location) {
+    public static boolean CanPlayerPlaceBlock(@NotNull final Player player, @NotNull Location location, boolean isStacking) {
         if (player.isOp() || player.hasPermission("*")) return true;
 
         IntegrationManager integrationManager = SmartSpawner.getInstance().getIntegrationManager();
@@ -28,7 +28,8 @@ public class CheckStackBlock {
         if (integrationManager.isHasIridiumSkyblock() && !IridiumSkyblock.canPlayerStackBlock(player, location)) return false;
         if (integrationManager.isHasPlotSquared() && !PlotSquared.canInteract(player, location)) return false;
         if (integrationManager.isHasResidence() && !Residence.canStack(player, location)) return false;
-        if (integrationManager.isHasSkyllia() && integrationManager.getSkylliaHook().canInteract(player, location, SkylliaHook.SpawnerAction.STACK) == SkylliaHook.ProtectionDecision.DENY) return false;
+        SkylliaHook.SpawnerAction action = isStacking ? SkylliaHook.SpawnerAction.STACK : SkylliaHook.SpawnerAction.PLACE;
+        if (integrationManager.isHasSkyllia() && integrationManager.getSkylliaHook().canInteract(player, location, action) == SkylliaHook.ProtectionDecision.DENY) return false;
         
         return true;
     }

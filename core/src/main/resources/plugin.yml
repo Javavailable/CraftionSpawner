@@ -120,5 +120,9 @@ permissions:
     default: op
 
   smartspawner.sellall:
-    description: Allow selling items in spawner storage GUI
+    description: "Allow selling items in spawner storage GUI"
     default: true
+
+  smartspawner.bypass.skyllia:
+    description: "Bypass CraftionSpawner Skyllia protection checks"
+    default: op

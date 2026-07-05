@@ -5,6 +5,7 @@ import github.nighter.smartspawner.api.events.SpawnerEggChangeEvent;
 import github.nighter.smartspawner.language.MessageService;
 import github.nighter.smartspawner.spawner.properties.SpawnerData;
 import github.nighter.smartspawner.language.LanguageManager;
+import github.nighter.smartspawner.hooks.protections.CheckOpenMenu;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -63,6 +64,12 @@ public class SpawnEggHandler {
         // Check permission
         if (!player.hasPermission(PERMISSION_CHANGE_TYPE)) {
             messageService.sendMessage(player, NO_PERMISSION_KEY);
+            return;
+        }
+
+        // Check protections explicitly for CHANGE_TYPE
+        if (!CheckOpenMenu.CanPlayerChangeType(player, spawner.getLocation())) {
+            messageService.sendMessage(player, "spawner_protected");
             return;
         }
 

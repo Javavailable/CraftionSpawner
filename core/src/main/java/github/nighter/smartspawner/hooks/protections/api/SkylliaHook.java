@@ -2,13 +2,14 @@ package github.nighter.smartspawner.hooks.protections.api;
 
 import fr.euphyllia.skyllia.api.SkylliaAPI;
 import fr.euphyllia.skyllia.api.skyblock.Island;
+import fr.euphyllia.skyllia.api.permissions.PermissionId;
 import github.nighter.smartspawner.SmartSpawner;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
-import fr.euphyllia.skyllia.api.permissions.PermissionId;
 import org.bukkit.plugin.Plugin;
 
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 public class SkylliaHook {
@@ -27,13 +28,22 @@ public class SkylliaHook {
         ABSTAIN
     }
 
-    private final SmartSpawner plugin;
-    private boolean enabled = false;
-    private long lastWarningTime = 0;
+    private static class PermissionSnapshot {
+        final PermissionId blockPlace;
+        final PermissionId blockBreak;
+        final PermissionId blockInteract;
 
-    private PermissionId blockPlace;
-    private PermissionId blockBreak;
-    private PermissionId blockInteract;
+        PermissionSnapshot() {
+            blockPlace = SkylliaAPI.getPermissionRegistry().getIfPresent(new NamespacedKey("skyllia", "block.place"));
+            blockBreak = SkylliaAPI.getPermissionRegistry().getIfPresent(new NamespacedKey("skyllia", "block.break"));
+            blockInteract = SkylliaAPI.getPermissionRegistry().getIfPresent(new NamespacedKey("skyllia", "block.interact"));
+        }
+    }
+
+    private final SmartSpawner plugin;
+    private volatile boolean enabled = false;
+    private volatile PermissionSnapshot permissions;
+    private final AtomicLong lastWarningTime = new AtomicLong(0);
 
     public SkylliaHook(SmartSpawner plugin) {
         this.plugin = plugin;
@@ -45,13 +55,17 @@ public class SkylliaHook {
             Plugin skylliaPlugin = plugin.getServer().getPluginManager().getPlugin("Skyllia");
             if (skylliaPlugin == null || !skylliaPlugin.isEnabled()) {
                 enabled = false;
+                permissions = null;
                 return;
             }
+
+            permissions = new PermissionSnapshot();
             enabled = true;
             plugin.getLogger().info("Skyllia integration initialized successfully!");
         } catch (NoClassDefFoundError | Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to initialize Skyllia integration: " + e.getMessage());
             enabled = false;
+            permissions = null;
         }
     }
 
@@ -62,17 +76,14 @@ public class SkylliaHook {
     public void reload() {
         initialize();
     }
-    
-    private void lazyLoadPermissions() {
-        if (blockPlace == null) blockPlace = SkylliaAPI.getPermissionRegistry().getIfPresent(new NamespacedKey("skyllia", "block.place"));
-        if (blockBreak == null) blockBreak = SkylliaAPI.getPermissionRegistry().getIfPresent(new NamespacedKey("skyllia", "block.break"));
-        if (blockInteract == null) blockInteract = SkylliaAPI.getPermissionRegistry().getIfPresent(new NamespacedKey("skyllia", "block.interact"));
-    }
 
     public ProtectionDecision canInteract(Player player, Location location, SpawnerAction action) {
         if (!enabled || location == null || location.getWorld() == null) {
             return ProtectionDecision.ABSTAIN;
         }
+
+        Island island = null;
+        boolean insideIsland = false;
 
         try {
             if (!SkylliaAPI.isWorldSkyblock(location.getWorld())) {
@@ -81,22 +92,32 @@ public class SkylliaHook {
 
             int chunkX = location.getBlockX() >> 4;
             int chunkZ = location.getBlockZ() >> 4;
-            Island island = SkylliaAPI.getIslandByChunk(chunkX, chunkZ);
-            
+            island = SkylliaAPI.getIslandByChunk(chunkX, chunkZ);
+
             if (island == null) {
                 return ProtectionDecision.ABSTAIN;
             }
+
+            if (!island.isInside(location)) {
+                return ProtectionDecision.ABSTAIN;
+            }
+
+            insideIsland = true; // Exact boundary confirmed
 
             if (player.hasPermission("smartspawner.bypass.skyllia")) {
                 return ProtectionDecision.ALLOW;
             }
 
-            lazyLoadPermissions();
+            PermissionSnapshot snapshot = this.permissions;
+            if (snapshot == null) {
+                logWarning("Skyllia API lookup failure: permission snapshot is null.");
+                return ProtectionDecision.DENY;
+            }
 
             PermissionId permId = switch (action) {
-                case PLACE, STACK -> blockPlace;
-                case BREAK -> blockBreak;
-                case OPEN, CHANGE_TYPE -> blockInteract;
+                case PLACE, STACK -> snapshot.blockPlace;
+                case BREAK -> snapshot.blockBreak;
+                case OPEN, CHANGE_TYPE -> snapshot.blockInteract;
             };
 
             if (permId == null) {
@@ -106,17 +127,24 @@ public class SkylliaHook {
 
             boolean hasPerm = SkylliaAPI.getPermissionsManager().hasPermission(player, island, permId);
             return hasPerm ? ProtectionDecision.ALLOW : ProtectionDecision.DENY;
+
         } catch (NoClassDefFoundError | Exception e) {
-            logWarning("Skyllia API lookup failure: " + e.getMessage());
-            return ProtectionDecision.DENY;
+            if (insideIsland) {
+                logWarning("Skyllia API evaluation failure after island boundary confirmed: " + e.getMessage());
+                return ProtectionDecision.DENY;
+            } else {
+                return ProtectionDecision.ABSTAIN;
+            }
         }
     }
 
     private void logWarning(String message) {
         long now = System.currentTimeMillis();
-        if (now - lastWarningTime > 5000) {
-            plugin.getLogger().warning(message);
-            lastWarningTime = now;
+        long last = lastWarningTime.get();
+        if (now - last > 5000) {
+            if (lastWarningTime.compareAndSet(last, now)) {
+                plugin.getLogger().warning(message);
+            }
         }
     }
 }
