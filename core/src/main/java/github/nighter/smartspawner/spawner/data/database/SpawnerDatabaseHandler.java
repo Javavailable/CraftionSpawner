@@ -179,10 +179,14 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
 
     @Override
     public void markSpawnerModified(String spawnerId) {
-        if (spawnerId != null) {
-            dirtySpawners.add(spawnerId);
-            deletedSpawners.remove(spawnerId);
+        if (spawnerId == null) {
+            return;
         }
+        // A queued deletion is a tombstone and must win over stale update requests.
+        if (deletedSpawners.contains(spawnerId)) {
+            return;
+        }
+        dirtySpawners.add(spawnerId);
     }
 
     @Override
@@ -215,10 +219,14 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
         plugin.debug("Flushing " + dirtySpawners.size() + " modified and " + deletedSpawners.size() + " deleted spawners to database");
 
         Scheduler.runTaskAsync(() -> {
+            // Capture stable snapshots OUTSIDE the try so they can be requeued on failure.
+            Set<String> toUpdate = new HashSet<>();
+            Set<String> toDelete = new HashSet<>();
+
             try {
                 // Handle updates
                 if (!dirtySpawners.isEmpty()) {
-                    Set<String> toUpdate = new HashSet<>(dirtySpawners);
+                    toUpdate.addAll(dirtySpawners);
                     dirtySpawners.removeAll(toUpdate);
 
                     saveSpawnerBatch(toUpdate);
@@ -226,15 +234,17 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
 
                 // Handle deletes
                 if (!deletedSpawners.isEmpty()) {
-                    Set<String> toDelete = new HashSet<>(deletedSpawners);
+                    toDelete.addAll(deletedSpawners);
                     deletedSpawners.removeAll(toDelete);
 
                     deleteSpawnerBatch(toDelete);
                 }
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error during database flush", e);
-                // Re-add failed items back to dirty lists
-                // Note: In production, might want more sophisticated retry logic
+                // Requeue snapshots so nothing is silently dropped. Upserts and deletes are
+                // idempotent, and re-queuing updates never clears a deletion tombstone.
+                dirtySpawners.addAll(toUpdate);
+                deletedSpawners.addAll(toDelete);
             } finally {
                 isSaving = false;
             }
@@ -608,7 +618,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
         }
 
         // Use a JSON-like array format that's easy to parse
-        // Format: ["item1:count","item2;damage:count:count",...]
+        // Format: [\"item1:count\",\"item2;damage:count:count\",...]
         StringBuilder sb = new StringBuilder();
         sb.append("[");
         for (int i = 0; i < serializedItems.size(); i++) {
@@ -624,7 +634,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
         if (jsonData == null || jsonData.isEmpty()) return;
 
         // Parse our simple JSON array format
-        // Format: ["item1:count","item2;damage:count:count",...]
+        // Format: [\"item1:count\",\"item2;damage:count:count\",...]
         if (!jsonData.startsWith("[") || !jsonData.endsWith("]")) {
             logger.warning("Invalid inventory JSON format: " + jsonData);
             return;
@@ -645,7 +655,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
                 continue;
             }
 
-            if (c == '\\') {
+            if (c == '\\\\') {
                 escaped = true;
                 continue;
             }
@@ -985,7 +995,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
 
         long total = 0;
         // Simple regex to find numbers after colons (item counts)
-        // Format: ["ITEM:count","ITEM:count",...]
+        // Format: [\"ITEM:count\",\"ITEM:count\",...]
         try {
             String[] parts = inventoryData.split(":");
             for (int i = 1; i < parts.length; i++) {
