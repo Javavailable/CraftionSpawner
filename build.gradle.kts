@@ -9,8 +9,8 @@ allprojects {
     apply(plugin = "java")
     apply(plugin = "maven-publish")
 
-    group = "github.nighter"
-    version = "1.7.0.1"
+    group = "io.github.javavailable"
+    version = "1.7.0.1-craftion.1"
 
     repositories {
         mavenCentral()

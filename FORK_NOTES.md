@@ -75,3 +75,19 @@ These are future planned packages (not implemented in S0):
 - S5 per-Farmer mob states
 - S6 Craftion UX
 - S7 hardening and release
+
+## S1A Project Identity
+
+- **Old Project Identity:** SmartSpawner (github.nighter)
+- **New Project Identity:** CraftionSpawner
+- **New Version:** 1.7.0.1-craftion.1
+- **New Gradle/Maven Group:** io.github.javavailable
+- **New JAR Name:** CraftionSpawner-1.7.0.1-craftion.1.jar
+- **New API Publication Coordinate:** io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.1
+- **Java packages and API class names:** intentionally retained
+- **Runtime plugin name:** intentionally retained temporarily
+- **Commands and permission nodes:** intentionally unchanged
+- **Data folder and persistent keys:** intentionally unchanged
+- **Full runtime identity migration:** deferred to S1B
+- **Full Craftion language/GUI localization:** deferred to a later package
+- **Upstream attribution:** preserved
