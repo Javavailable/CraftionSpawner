@@ -35,16 +35,13 @@ public class SpawnerData {
     @Getter
     private final ReentrantLock dataLock = new ReentrantLock();  // For metadata changes (exp, stack size, etc.)
 
-    // Atomic sell state – single CAS guard that replaces the old sellLock + double-lock pattern.
-    // All operations that touch virtual inventory must check isSelling() before proceeding.
+    // Atomic sell state
     private final AtomicBoolean selling = new AtomicBoolean(false);
 
-    // Atomic removal claim (S2B Skyllia island cleanup). When set, this spawner is being
-    // detached: no sale may start, and stale references must not resurrect a queued deletion.
+    // Atomic removal claim (S2B Skyllia island cleanup).
     private final AtomicBoolean removalPending = new AtomicBoolean(false);
 
-    // Dirty flag for storage GUI – set when items are moved/dropped inside the storage GUI,
-    // cleared (and spawner queued for save) when the GUI is closed or main menu is returned to.
+    // Dirty flag for storage GUI
     private final AtomicBoolean storageDirty = new AtomicBoolean(false);
 
     // Base values from config (immutable after load)
@@ -77,11 +74,9 @@ public class SpawnerData {
     @Getter @Setter
     private EntityLootConfig lootConfig;
 
-    // Item spawner support - stores the material being spawned for item spawners
     @Getter @Setter
     private Material spawnedItemMaterial;
 
-    // Calculated values based on stackSize
     @Getter
     private int maxStoragePages;
     @Getter @Setter
@@ -111,7 +106,6 @@ public class SpawnerData {
     @Getter
     private boolean lastSellProcessed;
 
-    // Accumulated sell value for optimization
     @Getter
     private volatile double accumulatedSellValue;
 
@@ -122,16 +116,20 @@ public class SpawnerData {
     @Getter @Setter
     private long cachedSpawnDelay;
 
-    // Sort preference for spawner storage
     @Getter @Setter
     private Material preferredSortItem;
 
-    // CRITICAL: Pre-generated loot storage for better UX - access must be synchronized via lootGenerationLock
+    // Pre-generated loot storage - access must be synchronized via lootGenerationLock
     private volatile List<ItemStack> preGeneratedItems;
     private volatile long preGeneratedExperience;
     private volatile boolean isPreGenerating;
 
-    // Cache for no-loot detection to avoid repeated expensive checks
+    // Pending commit holder for pre-generated loot that could not be committed due to transient
+    // lock contention. Drained and merged by the next generation commit. Not exposed via the
+    // public API.
+    private final Object pendingCommitLock = new Object();
+    private PreGeneratedLootBatch pendingCommitBatch;
+
     private volatile Boolean cachedHasNoLoot = null;
 
     public SpawnerData(String id, Location location, EntityType type, SmartSpawner plugin) {
@@ -148,7 +146,6 @@ public class SpawnerData {
         initializeComponents();
     }
 
-    // Constructor for item spawners
     public SpawnerData(String id, Location location, Material itemMaterial, SmartSpawner plugin) {
         super();
         this.plugin = plugin;
@@ -170,7 +167,7 @@ public class SpawnerData {
         this.isAtCapacity = false;
         this.stackSize = 1;
         this.lastSpawnTime = System.currentTimeMillis();
-        this.preferredSortItem = null; // Initialize sort preference as null
+        this.preferredSortItem = null;
         this.accumulatedSellValue = 0.0;
         this.sellValueDirty = true;
     }
@@ -182,10 +179,9 @@ public class SpawnerData {
         this.baseMaxMobs = plugin.getConfig().getInt("spawner_properties.default.max_mobs", 4);
         this.maxStackSize = plugin.getConfig().getInt("spawner_properties.default.max_stack_size", 1000);
         this.spawnDelay = plugin.getTimeFromConfig("spawner_properties.default.delay", "25s");
-        this.cachedSpawnDelay = (this.spawnDelay + 20L) * 50L; // Add 1 second buffer for GUI display and convert tick to ms
+        this.cachedSpawnDelay = (this.spawnDelay + 20L) * 50L;
         this.spawnerRange = plugin.getConfig().getInt("spawner_properties.default.range", 16);
 
-        // Load loot config based on spawner type
         if (isItemSpawner() && spawnedItemMaterial != null) {
             this.lootConfig = plugin.getItemSpawnerSettingsConfig().getLootConfig(spawnedItemMaterial);
         } else {
@@ -198,11 +194,9 @@ public class SpawnerData {
         if (virtualInventory != null && virtualInventory.getMaxSlots() != maxSpawnerLootSlots) {
             recreateVirtualInventory();
         }
-        // Mark sell value as dirty after config reload since prices may have changed
         this.sellValueDirty = true;
         updateHologramData();
 
-        // Invalidate GUI cache after config reload
         if (plugin.getSpawnerMenuUI() != null) {
             plugin.getSpawnerMenuUI().invalidateSpawnerCache(this.spawnerId);
         }
@@ -211,10 +205,6 @@ public class SpawnerData {
         }
     }
 
-    /**
-     * Recalculates spawner values after API modifications.
-     * Similar to {@link #recalculateAfterConfigReload()} but specifically for API changes.
-     */
     public void recalculateAfterAPIModification() {
         calculateStackBasedValues();
         if (virtualInventory != null && virtualInventory.getMaxSlots() != maxSpawnerLootSlots) {
@@ -222,7 +212,6 @@ public class SpawnerData {
         }
         updateHologramData();
 
-        // Invalidate GUI cache after API modifications
         if (plugin.getSpawnerMenuUI() != null) {
             plugin.getSpawnerMenuUI().invalidateSpawnerCache(this.spawnerId);
         }
@@ -248,6 +237,7 @@ public class SpawnerData {
             plugin.getLogger().warning("Invalid spawner delay value. Setting to default: 500 ticks (25s)");
         }
     }
+
     public void setSpawnDelayFromConfig() {
         long delay = plugin.getTimeFromConfig("spawner_properties.default.delay", "25s");
         if (delay <= 0) {
@@ -291,10 +281,6 @@ public class SpawnerData {
     }
 
     public void setStackSize(int stackSize, boolean restartHopper) {
-        // Acquire locks in consistent order to prevent deadlocks:
-        // 1. dataLock - for metadata changes
-        // 2. inventoryLock - to prevent inventory operations during virtual inventory replacement
-        // Note: We don't acquire lootGenerationLock here to avoid blocking loot generation cycles
         dataLock.lock();
         try {
             inventoryLock.lock();
@@ -315,9 +301,6 @@ public class SpawnerData {
             return;
         }
 
-        // Only prevent INCREASING beyond maxStackSize.
-        // If the config limit was lowered after a spawner accumulated a higher stack,
-        // we must still allow the count to decrease (e.g. on break) to avoid data loss.
         if (newStackSize > this.maxStackSize && newStackSize > this.stackSize) {
             plugin.getLogger().warning("Stack size " + newStackSize + " exceeds maximum " + this.maxStackSize + ". Ignoring.");
             return;
@@ -325,15 +308,10 @@ public class SpawnerData {
 
         this.stackSize = newStackSize;
         calculateStackBasedValues();
-
-        // Resize the existing virtual inventory instead of creating a new one
         virtualInventory.resize(this.maxSpawnerLootSlots);
-
-        // Reset lastSpawnTime to prevent exploit where players break spawners to trigger immediate loot
         this.lastSpawnTime = System.currentTimeMillis();
         updateHologramData();
 
-        // Invalidate GUI cache when stack size changes
         if (plugin.getSpawnerMenuUI() != null) {
             plugin.getSpawnerMenuUI().invalidateSpawnerCache(this.spawnerId);
         }
@@ -351,7 +329,6 @@ public class SpawnerData {
         this.spawnerExp = Math.clamp(exp, 0L, maxStoredExp);
         updateHologramData();
 
-        // Invalidate GUI cache when experience changes
         if (plugin.getSpawnerMenuUI() != null) {
             plugin.getSpawnerMenuUI().invalidateSpawnerCache(this.spawnerId);
         }
@@ -369,22 +346,14 @@ public class SpawnerData {
     }
 
     private int clampToInt(long value, int min, int max) {
-        if (value < min) {
-            return min;
-        }
-        if (value > max) {
-            return max;
-        }
+        if (value < min) return min;
+        if (value > max) return max;
         return (int) value;
     }
 
     private long clampToLong(long value, long min, long max) {
-        if (value < min) {
-            return min;
-        }
-        if (value > max) {
-            return max;
-        }
+        if (value < min) return min;
+        if (value > max) return max;
         return value;
     }
 
@@ -404,9 +373,7 @@ public class SpawnerData {
 
     public void refreshHologram() {
         if (plugin.getConfig().getBoolean("hologram.enabled", false)) {
-            if (hologram == null) {
-                createHologram();
-            }
+            if (hologram == null) createHologram();
         } else if (hologram != null) {
             removeHologram();
         }
@@ -435,25 +402,19 @@ public class SpawnerData {
     public void setEntityType(EntityType newType) {
         this.entityType = newType;
         this.lootConfig = plugin.getSpawnerSettingsConfig().getLootConfig(newType);
-        // Mark sell value as dirty since entity type and prices changed
         this.sellValueDirty = true;
         updateHologramData();
     }
 
     public boolean toggleItemFilter(Material material) {
         boolean wasFiltered = filteredItems.contains(material);
-        if (wasFiltered) {
-            filteredItems.remove(material);
-        } else {
-            filteredItems.add(material);
-        }
+        if (wasFiltered) filteredItems.remove(material);
+        else filteredItems.add(material);
         return !wasFiltered;
     }
 
     public List<LootItem> getValidLootItems() {
-        if (lootConfig == null) {
-            return Collections.emptyList();
-        }
+        if (lootConfig == null) return Collections.emptyList();
         return lootConfig.getAllItems().stream()
                 .filter(this::isLootItemValid)
                 .collect(Collectors.toList());
@@ -468,20 +429,8 @@ public class SpawnerData {
         return lootConfig != null ? lootConfig.experience() : 0;
     }
 
-    /**
-     * Checks if this spawner has any configured loot or experience.
-     * Used to detect spawners that will never generate anything (like Allay).
-     * Result is cached for performance.
-     *
-     * @return true if spawner has no loot items and no experience configured
-     */
     public boolean hasNoLootOrExperience() {
-        // Return cached value if available
-        if (cachedHasNoLoot != null) {
-            return cachedHasNoLoot;
-        }
-
-        // Calculate and cache the result
+        if (cachedHasNoLoot != null) return cachedHasNoLoot;
         boolean result = (lootConfig == null ||
                 (lootConfig.experience() == 0 && getValidLootItems().isEmpty()));
         cachedHasNoLoot = result;
@@ -489,15 +438,12 @@ public class SpawnerData {
     }
 
     public void setLootConfig() {
-        // Load loot config based on spawner type
         if (isItemSpawner() && spawnedItemMaterial != null) {
             this.lootConfig = plugin.getItemSpawnerSettingsConfig().getLootConfig(spawnedItemMaterial);
         } else {
             this.lootConfig = plugin.getSpawnerSettingsConfig().getLootConfig(entityType);
         }
-        // Mark sell value as dirty since prices may have changed
         this.sellValueDirty = true;
-        // Invalidate no-loot cache since config changed
         this.cachedHasNoLoot = null;
     }
 
@@ -511,198 +457,83 @@ public class SpawnerData {
         this.lastSellResult = null;
     }
 
-    /** @return true if this spawner is currently executing a sell operation */
-    public boolean isSelling() {
-        return selling.get();
-    }
+    public boolean isSelling() { return selling.get(); }
 
-    /**
-     * Atomically transitions the spawner into selling state.
-     * <p>Refuses to start when a removal has been claimed, and re-checks the removal claim
-     * after acquiring selling so a removal that wins concurrently cannot be overrun.
-     * @return true if the transition succeeded (caller owns the sell), false otherwise
-     */
     public boolean startSelling() {
-        // 1. Refuse if a removal claim is already active.
-        if (removalPending.get()) {
-            return false;
-        }
-        // 2. Acquire the selling state.
-        if (!selling.compareAndSet(false, true)) {
-            return false;
-        }
-        // 3. Re-check removal after acquiring selling to close the check-then-act race.
-        if (removalPending.get()) {
-            // 4. Removal won the race: release selling and abort.
-            selling.set(false);
-            return false;
-        }
-        // 5. Sale ownership confirmed.
+        if (removalPending.get()) return false;
+        if (!selling.compareAndSet(false, true)) return false;
+        if (removalPending.get()) { selling.set(false); return false; }
         return true;
     }
 
-    /** Releases the selling state so other operations may proceed. */
-    public void stopSelling() {
-        selling.set(false);
-    }
+    public void stopSelling() { selling.set(false); }
 
-    /**
-     * Atomically claims this spawner for removal (Skyllia island cleanup).
-     * Fails if a sale is in progress, guaranteeing detach and sell are mutually exclusive.
-     * @return true if the removal claim was acquired, false if a sale is active or removal already claimed
-     */
     public boolean tryBeginRemoval() {
-        // 1. Claim removal first so a concurrent startSelling() observes it.
-        if (!removalPending.compareAndSet(false, true)) {
-            return false;
-        }
-        // 2-3. If a sale is already active, back out the claim and let the sale finish.
-        if (selling.get()) {
-            removalPending.set(false);
-            return false;
-        }
-        // 4. Removal ownership confirmed.
+        if (!removalPending.compareAndSet(false, true)) return false;
+        if (selling.get()) { removalPending.set(false); return false; }
         return true;
     }
 
-    /** Releases a removal claim when cleanup is deferred or detachment did not happen. */
-    public void cancelRemoval() {
-        removalPending.set(false);
-    }
+    public void cancelRemoval() { removalPending.set(false); }
 
-    /** @return true if this spawner has an active removal claim. */
-    public boolean isRemovalPending() {
-        return removalPending.get();
-    }
+    public boolean isRemovalPending() { return removalPending.get(); }
 
-    /** @return true if the storage GUI content was modified since last save. */
-    public boolean isStorageDirty() {
-        return storageDirty.get();
-    }
+    public boolean isStorageDirty() { return storageDirty.get(); }
+    public void markStorageDirty() { storageDirty.set(true); }
+    public void clearStorageDirty() { storageDirty.set(false); }
 
-    /** Marks that the storage GUI content has been modified and needs to be saved. */
-    public void markStorageDirty() {
-        storageDirty.set(true);
-    }
+    public void updateLastInteractedPlayer(String playerName) { this.lastInteractedPlayer = playerName; }
 
-    /** Clears the storage dirty flag after the spawner has been queued for saving. */
-    public void clearStorageDirty() {
-        storageDirty.set(false);
-    }
+    public void markSellValueDirty() { this.sellValueDirty = true; }
 
-    public void updateLastInteractedPlayer(String playerName) {
-        this.lastInteractedPlayer = playerName;
-    }
-
-    /**
-     * Marks the sell value as dirty, requiring recalculation
-     */
-    public void markSellValueDirty() {
-        this.sellValueDirty = true;
-    }
-
-    /**
-     * Updates the accumulated sell value for specific items being added
-     * @param itemsAdded Map of item signatures to quantities added
-     * @param priceCache Price cache from loot config
-     */
-    public void incrementSellValue(Map<ItemSignature, Long> itemsAdded,
-                                   Map<String, Double> priceCache) {
-        if (itemsAdded == null || itemsAdded.isEmpty()) {
-            return;
-        }
-
+    public void incrementSellValue(Map<ItemSignature, Long> itemsAdded, Map<String, Double> priceCache) {
+        if (itemsAdded == null || itemsAdded.isEmpty()) return;
         double addedValue = 0.0;
         for (Map.Entry<ItemSignature, Long> entry : itemsAdded.entrySet()) {
             double itemPrice = findItemPrice(entry.getKey(), priceCache);
-            if (itemPrice > 0.0) {
-                addedValue += itemPrice * entry.getValue();
-            }
+            if (itemPrice > 0.0) addedValue += itemPrice * entry.getValue();
         }
-
         this.accumulatedSellValue += addedValue;
         this.sellValueDirty = false;
     }
 
-    /**
-     * Decrements the accumulated sell value when items are removed
-     * @param itemsRemoved List of items removed
-     * @param priceCache Price cache from loot config
-     */
     public void decrementSellValue(List<ItemStack> itemsRemoved, Map<String, Double> priceCache) {
-        if (itemsRemoved == null || itemsRemoved.isEmpty()) {
-            return;
-        }
-
-        // Consolidate removed items
+        if (itemsRemoved == null || itemsRemoved.isEmpty()) return;
         Map<ItemSignature, Long> consolidated = new java.util.HashMap<>();
         for (ItemStack item : itemsRemoved) {
             if (item == null || item.getAmount() <= 0) continue;
-            // Use cached signature to avoid excessive cloning
             ItemSignature sig = VirtualInventory.getSignature(item);
             consolidated.merge(sig, (long) item.getAmount(), (a, b) -> a + b);
         }
-
         double removedValue = 0.0;
         for (Map.Entry<ItemSignature, Long> entry : consolidated.entrySet()) {
             double itemPrice = findItemPrice(entry.getKey(), priceCache);
-            if (itemPrice > 0.0) {
-                removedValue += itemPrice * entry.getValue();
-            }
+            if (itemPrice > 0.0) removedValue += itemPrice * entry.getValue();
         }
-
         this.accumulatedSellValue = Math.max(0.0, this.accumulatedSellValue - removedValue);
     }
 
-    /**
-     * Forces a full recalculation of the accumulated sell value
-     * Should be called when the cache is dirty or on spawner load
-     */
     public void recalculateSellValue() {
-        if (lootConfig == null) {
-            this.accumulatedSellValue = 0.0;
-            this.sellValueDirty = false;
-            return;
-        }
-
-        // Get price cache
+        if (lootConfig == null) { this.accumulatedSellValue = 0.0; this.sellValueDirty = false; return; }
         Map<String, Double> priceCache = createPriceCache();
-
-        // Calculate from current inventory
         Map<ItemSignature, Long> items = virtualInventory.getConsolidatedItems();
         double totalValue = 0.0;
-
         for (Map.Entry<ItemSignature, Long> entry : items.entrySet()) {
             double itemPrice = findItemPrice(entry.getKey(), priceCache);
-            if (itemPrice > 0.0) {
-                totalValue += itemPrice * entry.getValue();
-            }
+            if (itemPrice > 0.0) totalValue += itemPrice * entry.getValue();
         }
-
         this.accumulatedSellValue = totalValue;
         this.sellValueDirty = false;
     }
 
-    /**
-     * Gets the price cache from loot config.
-     * Prefers live prices from ItemPriceManager to avoid startup timing issues where
-     * shop plugin prices aren't yet available when LootItem.sellPrice is baked in.
-     */
     public Map<String, Double> createPriceCache() {
-        if (lootConfig == null) {
-            return new java.util.HashMap<>();
-        }
-
+        if (lootConfig == null) return new java.util.HashMap<>();
         github.nighter.smartspawner.hooks.economy.ItemPriceManager priceManager = plugin.getItemPriceManager();
         Map<String, Double> cache = new java.util.HashMap<>();
         java.util.List<LootItem> allLootItems = lootConfig.getAllItems();
-
         for (LootItem lootItem : allLootItems) {
-            // Use live price from ItemPriceManager; fall back to baked sellPrice if unavailable
             double price = (priceManager != null) ? priceManager.getPrice(lootItem.material()) : 0.0;
-            if (price <= 0.0) {
-                price = lootItem.sellPrice();
-            }
+            if (price <= 0.0) price = lootItem.sellPrice();
             if (price > 0.0) {
                 ItemStack template = lootItem.createItemStack();
                 if (template != null) {
@@ -711,120 +542,98 @@ public class SpawnerData {
                 }
             }
         }
-
         return cache;
     }
 
-    /**
-     * Finds item price using the cache
-     */
     private double findItemPrice(ItemSignature itemSignature, Map<String, Double> priceCache) {
-        if (priceCache == null) {
-            return 0.0;
-        }
+        if (priceCache == null) return 0.0;
         String itemKey = createItemKey(itemSignature);
         Double price = priceCache.get(itemKey);
         return price != null ? price : 0.0;
     }
 
-    /**
-     * Convenience overload
-     */
     private String createItemKey(ItemStack itemStack) {
         if (itemStack == null) return "null";
-
         return createItemKey(new ItemSignature(itemStack));
     }
 
-    /**
-     * Creates a unique key for an item (same logic as SpawnerSellManager)
-     * TODO: this feels very wrong ngl
-     */
     private String createItemKey(ItemSignature itemSignature) {
         StringBuilder key = new StringBuilder();
         key.append(itemSignature.getMaterial().name());
-
-        // Add enchantments if present
-        ItemMeta meta = itemSignature.getUnsafeTemplateRef().getItemMeta(); // Read-only
+        ItemMeta meta = itemSignature.getUnsafeTemplateRef().getItemMeta();
         if (itemSignature.hasItemMeta() && meta.hasEnchants()) {
             key.append("_enchants:");
             meta.getEnchants().entrySet().stream()
                     .sorted(java.util.Map.Entry.comparingByKey(java.util.Comparator.comparing(enchantment -> enchantment.getKey().toString())))
                     .forEach(entry -> key.append(entry.getKey().getKey()).append(":").append(entry.getValue()).append(","));
         }
-
-        // Add display name if present
         if (itemSignature.hasItemMeta() && meta.hasDisplayName()) {
             key.append("_name:").append(meta.displayName());
         }
-
         return key.toString();
     }
 
     /**
-     * Adds items to virtual inventory and updates accumulated sell value
-     * This is the preferred method to add items to maintain accurate sell value cache
-     * THREAD-SAFE: Uses inventoryLock to ensure atomicity
+     * Adds items to virtual inventory and updates accumulated sell value.
+     * Acquires {@link #inventoryLock} (blocking) then delegates to
+     * {@link #addItemsAndUpdateSellValueWhileLocked}. Use this for all callers that do NOT
+     * already own the inventory lock (e.g. sell flow, hopper, API).
+     *
      * @param items Items to add
      */
     public void addItemsAndUpdateSellValue(List<ItemStack> items) {
-        if (items == null || items.isEmpty()) {
-            return;
-        }
-
-        // CRITICAL: Acquire inventoryLock to ensure VirtualInventory remains source of truth
+        if (items == null || items.isEmpty()) return;
         inventoryLock.lock();
         try {
-            // Consolidate items being added for efficient price lookup
-            Map<ItemSignature, Long> itemsToAdd = new java.util.HashMap<>();
-            for (ItemStack item : items) {
-                if (item == null || item.getAmount() <= 0) continue;
-                // Use cached signature to avoid excessive cloning
-                ItemSignature sig = VirtualInventory.getSignature(item);
-                itemsToAdd.merge(sig, (long) item.getAmount(), (a, b) -> a + b);
-            }
-
-            // Add to VirtualInventory (source of truth) - this operation is atomic within the lock
-            virtualInventory.addItems(items);
-
-            // Update sell value atomically
-            if (!sellValueDirty) {
-                Map<String, Double> priceCache = createPriceCache();
-                incrementSellValue(itemsToAdd, priceCache);
-            }
+            addItemsAndUpdateSellValueWhileLocked(items);
         } finally {
             inventoryLock.unlock();
         }
     }
 
     /**
-     * Removes items from virtual inventory and updates accumulated sell value
-     * THREAD-SAFE: Uses inventoryLock to ensure atomicity
-     * @param items Items to remove
-     * @return true if items were removed successfully
+     * Adds items to the virtual inventory and updates sell value WITHOUT acquiring
+     * {@link #inventoryLock}. The caller MUST already hold the inventory lock (as the generation
+     * commit path does after its non-blocking {@code tryLock}). Throws
+     * {@link IllegalStateException} if called without owning the lock.
+     *
+     * @param items Items to add
      */
-    public boolean removeItemsAndUpdateSellValue(List<ItemStack> items) {
-        if (items == null || items.isEmpty()) {
-            return true;
+    public void addItemsAndUpdateSellValueWhileLocked(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) return;
+        if (!inventoryLock.isHeldByCurrentThread()) {
+            throw new IllegalStateException(
+                    "addItemsAndUpdateSellValueWhileLocked requires the caller to hold inventoryLock");
         }
+        Map<ItemSignature, Long> itemsToAdd = new java.util.HashMap<>();
+        for (ItemStack item : items) {
+            if (item == null || item.getAmount() <= 0) continue;
+            ItemSignature sig = VirtualInventory.getSignature(item);
+            itemsToAdd.merge(sig, (long) item.getAmount(), (a, b) -> a + b);
+        }
+        virtualInventory.addItems(items);
+        if (!sellValueDirty) {
+            Map<String, Double> priceCache = createPriceCache();
+            incrementSellValue(itemsToAdd, priceCache);
+        }
+    }
 
-        // CRITICAL: Acquire inventoryLock to ensure VirtualInventory remains source of truth
+    public boolean removeItemsAndUpdateSellValue(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) return true;
         inventoryLock.lock();
         try {
-            // Remove from VirtualInventory (source of truth) - atomic operation within lock
             boolean removed = virtualInventory.removeItems(items);
-
-            // Update sell value atomically if removal was successful
             if (removed && !sellValueDirty) {
                 Map<String, Double> priceCache = createPriceCache();
                 decrementSellValue(items, priceCache);
             }
-
             return removed;
         } finally {
             inventoryLock.unlock();
         }
     }
+
+    // ===== Pre-generated loot (synchronized via lootGenerationLock by callers) =====
 
     public synchronized void storePreGeneratedLoot(List<ItemStack> items, long experience) {
         this.preGeneratedItems = items;
@@ -847,13 +656,8 @@ public class SpawnerData {
         return (preGeneratedItems != null && !preGeneratedItems.isEmpty()) || preGeneratedExperience > 0;
     }
 
-    public synchronized void setPreGenerating(boolean generating) {
-        this.isPreGenerating = generating;
-    }
-
-    public synchronized boolean isPreGenerating() {
-        return isPreGenerating;
-    }
+    public synchronized void setPreGenerating(boolean generating) { this.isPreGenerating = generating; }
+    public synchronized boolean isPreGenerating() { return isPreGenerating; }
 
     public synchronized void clearPreGeneratedLoot() {
         preGeneratedItems = null;
@@ -861,10 +665,74 @@ public class SpawnerData {
         isPreGenerating = false;
     }
 
+    // ===== Pending commit holder for pre-generated batches =====
+
     /**
-     * Checks if this is an item spawner (spawns items instead of entities)
-     * @return true if this spawner spawns items
+     * Immutable holder for a pre-generated item and XP batch that was requeued after retry
+     * exhaustion. Drained and merged by the next successful generation commit. Never exposed
+     * through the public API.
      */
+    public static final class PreGeneratedLootBatch {
+        private final List<ItemStack> items;    // unmodifiable, owned deep clones
+        private final long experience;
+
+        PreGeneratedLootBatch(List<ItemStack> items, long experience) {
+            List<ItemStack> copy = new ArrayList<>();
+            if (items != null) for (ItemStack it : items) if (it != null) copy.add(it.clone());
+            this.items = Collections.unmodifiableList(copy);
+            this.experience = Math.max(0L, experience);
+        }
+
+        public List<ItemStack> getItems() { return items; }
+        public long getExperience() { return experience; }
+    }
+
+    /**
+     * Merges a batch into the pending-commit holder. If a holder already exists (from an earlier
+     * exhaustion) the two are merged rather than overwritten, so a newer requeue never silently
+     * discards an older one.
+     */
+    public void queuePendingCommitBatch(List<ItemStack> items, long experience) {
+        synchronized (pendingCommitLock) {
+            if (pendingCommitBatch == null) {
+                pendingCommitBatch = new PreGeneratedLootBatch(items, experience);
+            } else {
+                List<ItemStack> merged = new ArrayList<>(pendingCommitBatch.getItems());
+                if (items != null) for (ItemStack it : items) if (it != null) merged.add(it.clone());
+                long e = pendingCommitBatch.getExperience();
+                long add = Math.max(0L, experience);
+                long total = (add > Long.MAX_VALUE - e) ? Long.MAX_VALUE : e + add;
+                pendingCommitBatch = new PreGeneratedLootBatch(merged, total);
+            }
+        }
+    }
+
+    /**
+     * Atomically takes and clears the pending-commit holder. Returns {@code null} if none exists.
+     * The caller owns the returned batch and is responsible for committing it.
+     */
+    public PreGeneratedLootBatch takePendingCommitBatch() {
+        synchronized (pendingCommitLock) {
+            PreGeneratedLootBatch b = pendingCommitBatch;
+            pendingCommitBatch = null;
+            return b;
+        }
+    }
+
+    /** @return {@code true} if there is a pending pre-generated batch waiting to be committed. */
+    public boolean hasPendingCommitBatch() {
+        synchronized (pendingCommitLock) {
+            return pendingCommitBatch != null;
+        }
+    }
+
+    /** Clears any pending-commit batch (e.g. when the spawner is detached). */
+    public void clearPendingCommitBatch() {
+        synchronized (pendingCommitLock) {
+            pendingCommitBatch = null;
+        }
+    }
+
     public boolean isItemSpawner() {
         return entityType == EntityType.ITEM && spawnedItemMaterial != null;
     }
