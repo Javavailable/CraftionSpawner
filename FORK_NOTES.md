@@ -105,3 +105,20 @@ These are future planned packages (not implemented in S0):
 - Upstream bStats: Disabled.
 - Java packages and API class names: Retained.
 - Localization: Full Craftion language and GUI localization remains pending.
+
+## S2A Skyllia Protection
+
+- **Skyllia Version:** fr.euphyllia.skyllia:api:3.0-158
+- **Inspected Commit:** daf64687d6cac9c252227c60cd402d9f6f132287
+- **Public API Used:** `SkylliaAPI.getIslandByChunk(int, int)`, `island.isInside(Location)`, `SkylliaAPI.getPermissionsManager().hasPermission(...)`, `SkylliaAPI.getPermissionRegistry().getIfPresent(...)`
+- **Protected Actions:** PLACE, BREAK, OPEN, STACK, CHANGE_TYPE
+- **Permission Mapping:**
+  - PLACE / STACK -> `skyllia:block.place`
+  - BREAK -> `skyllia:block.break`
+  - OPEN / CHANGE_TYPE -> `skyllia:block.interact`
+- **Bypass Permission:** `smartspawner.bypass.skyllia`
+- **Boundary Behavior:** Confirms exact island boundary via `island.isInside(location)`. Abstains if not inside the island.
+- **Absent/Outside-island Behavior:** Leaves existing behavior unchanged (ABSTAIN)
+- **API Failure Behavior:** Exception before valid island: ABSTAIN. Exception after island confirmed: DENY. Missing permission node: DENY with rate-limited warning.
+- **Synchronous Lookup Limitation:** `SkylliaAPI.getIslandByChunk` calls `getIslandByRegion` which performs a synchronous JDBC database query (`plugin.getInterneAPI().getIslandQuery().getIslandDataQuery().getIslandByRegion`) on cold cache misses. This limitation is noted and event cancellations will rely on Skyllia natively cancelling `BlockPlaceEvent` and `PlayerInteractEvent` where applicable, which allows the plugin to ignore them via `ignoreCancelled = true`.
+- **Deferred Tasks:** S2B cleanup remains deferred.

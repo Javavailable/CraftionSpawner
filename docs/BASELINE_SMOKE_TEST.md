@@ -68,3 +68,19 @@ This is a manual checklist to verify the SmartSpawner upstream baseline behaves 
 - **Tester:** 
 - **Date:** 
 - **Notes:** 
+
+## S2A Skyllia Integration Tests (Pending)
+- [ ] starts without Skyllia
+- [ ] starts with Skyllia
+- [ ] owner can place, break, open, stack and change type
+- [ ] allowed member role follows Skyllia permission settings
+- [ ] denied member cannot perform each action
+- [ ] visitor cannot perform each action
+- [ ] bypass permission works
+- [ ] outside exact island boundary remains untouched by CraftionSpawner hook
+- [ ] cancelled Skyllia placement creates no ghost record
+- [ ] Java GUI path works
+- [ ] Bedrock/FormUI path works
+- [ ] no duplicate denial message
+- [ ] reload does not duplicate or stale the hook
+- [ ] no Paper/Folia region-thread warning

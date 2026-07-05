@@ -10,10 +10,14 @@ allprojects {
     apply(plugin = "maven-publish")
 
     group = "io.github.javavailable"
-    version = "1.7.0.1-craftion.2"
+    version = "1.7.0.1-craftion.3"
 
     repositories {
         mavenCentral()
+        maven {
+            name = "euphyllia"
+            url = uri("https://repo.euphyllia.moe/repository/maven-public/")
+        }
         maven {
             name = "papermc-repo"
             url = uri("https://repo.papermc.io/repository/maven-public/")

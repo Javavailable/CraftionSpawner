@@ -47,7 +47,7 @@ public class SpawnerPlaceListener implements Listener {
         this.spawnerManager = plugin.getSpawnerManager();
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
         Block block = event.getBlock();
 
@@ -69,7 +69,9 @@ public class SpawnerPlaceListener implements Listener {
             return;
         }
 
-        if (!CheckStackBlock.CanPlayerPlaceBlock(player, block.getLocation())) {
+        // Handle protections natively
+        if (!CheckStackBlock.CanPlayerPlaceBlock(player, block.getLocation(), false)) {
+            messageService.sendMessage(player, "spawner_protected");
             event.setCancelled(true);
             return;
         }

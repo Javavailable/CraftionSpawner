@@ -17,12 +17,12 @@ cd CraftionSpawner
 ```
 
 The compiled shaded JAR will be available in:
-`core/build/libs/CraftionSpawner-1.7.0.1-craftion.2.jar`
+`core/build/libs/CraftionSpawner-1.7.0.1-craftion.3.jar`
 
 ## API
 
 **Artifact Coordinate:**
-`io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.2`
+`io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.3`
 
 *Note: Java packages and public API class names remain upstream-compatible for now.*
 
@@ -36,6 +36,14 @@ The compiled shaded JAR will be available in:
 - **Legacy Migration:** The plugin automatically moves the legacy `plugins/SmartSpawner` folder to `plugins/CraftionSpawner` if the new folder does not exist or is empty.
 - **Upstream Services:** Upstream UpdateChecker and bStats are cleanly disabled.
 - **Testing:** Live Paper/Folia/Luminol testing remains pending.
+
+## Integrations & Protections
+
+- **Skyllia Protection (Optional):** Protects spawner actions (`PLACE`, `BREAK`, `OPEN`, `STACK`, `CHANGE_TYPE`) to respect Skyllia island permissions.
+- **Bypass Permission:** Admins can bypass Skyllia checks with `smartspawner.bypass.skyllia`.
+- **Absent Skyllia:** If Skyllia is absent or disabled, the plugin leaves existing behavior unchanged.
+- **Non-island Locations:** If the spawner location is outside any Skyllia island, the integration will abstain from interfering.
+- **Island Deletion Cleanup:** Island deletion spawner cleanup remains deferred to S2B.
 
 ## Upstream References & Attribution
 

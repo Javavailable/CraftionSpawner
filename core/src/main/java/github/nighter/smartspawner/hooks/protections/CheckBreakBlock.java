@@ -23,6 +23,7 @@ public class CheckBreakBlock {
         if (integrationManager.isHasPlotSquared() && !PlotSquared.canInteract(player, location)) return false;
         if (integrationManager.isHasResidence() && !Residence.canPlayerBreakBlock(player, location)) return false;
         if (integrationManager.isHasMinePlots() && !MinePlots.canPlayerBreakBlock(player, location)) return false;
+        if (integrationManager.isHasSkyllia() && integrationManager.getSkylliaHook().canInteract(player, location, SkylliaHook.SpawnerAction.BREAK) == SkylliaHook.ProtectionDecision.DENY) return false;
         return true;
     }
 }

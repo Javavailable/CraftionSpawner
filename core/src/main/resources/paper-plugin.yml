@@ -112,6 +112,10 @@ dependencies:
       load: BEFORE
       required: false
       join-classpath: true
+    Skyllia:
+      load: BEFORE
+      required: false
+      join-classpath: true
 
     # RPG/Skill Plugins
     AuraSkills:
@@ -193,3 +197,7 @@ permissions:
   smartspawner.sellall:
     description: "Allow selling items in spawner storage GUI"
     default: true
+
+  smartspawner.bypass.skyllia:
+    description: "Bypass CraftionSpawner Skyllia protection checks"
+    default: op
