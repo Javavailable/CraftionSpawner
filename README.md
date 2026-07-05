@@ -49,6 +49,15 @@ api.getOutputRouterRegistry().register(
 Routers run in deterministic order and are validated defensively: a router that throws, returns
 `null`, returns malformed/AIR/non-positive items, introduces a new item type, or inflates quantities
 is ignored for that batch (with a rate-limited warning) and the generated items are preserved.
+The result factories reject `null` (`passThrough(null)` / `remaining(null)` throw); use
+`SpawnerOutputResult.consumeAll()` to consume the whole batch.
+
+### API Java compatibility
+
+The `craftionspawner-api` module is compiled to **Java 21 bytecode** (class-file major version 65) so
+it can be consumed by Java 21 toolchains and plugins such as CraftionFarmer. The CraftionSpawner
+core/plugin remains **Java 25** (class-file major version 69) and shades the Java 21 API classes. The
+public API module must not use Java 22+ language or API features.
 
 ## Changes
 
@@ -59,7 +68,7 @@ is ignored for that batch (with a rate-limited warning) and the generated items 
 - [x] Add S1B: Apply CraftionSpawner runtime identity
 - [x] Add S2A: Add Skyllia access protection integration
 - [x] Add S2B: Clean CraftionSpawner data when a Skyllia island is deleted
-- [x] Add S3: Public output-router API for newly generated item output (additive, fail-open)
+- [x] Add S3: Public output-router API for newly generated item output (additive, fail-open, Java 21 API)
 - [ ] S4: CraftionFarmer output-router bridge (planned, not included)
 - [ ] Live testing of S1/S2/S3 features pending
 - [ ] More features coming soon...
