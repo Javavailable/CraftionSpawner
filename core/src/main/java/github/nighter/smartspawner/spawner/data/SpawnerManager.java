@@ -11,8 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SpawnerManager {
     private final SmartSpawner plugin;
     private final Map<String, SpawnerData> spawners = new ConcurrentHashMap<>();
-    private final Map<LocationKey, SpawnerData> locationIndex = new HashMap<>();
-    private final Map<String, Set<SpawnerData>> worldIndex = new HashMap<>();
+    private final Map<LocationKey, SpawnerData> locationIndex = new ConcurrentHashMap<>();
+    private final Map<String, Set<SpawnerData>> worldIndex = new ConcurrentHashMap<>();
     private final SpawnerStorage spawnerStorage;
     // Set to keep track of confirmed ghost spawners to avoid repeated checks
     private final Set<String> confirmedGhostSpawners = ConcurrentHashMap.newKeySet();
@@ -81,9 +81,14 @@ public class SpawnerManager {
         spawners.put(id, spawner);
         locationIndex.put(new LocationKey(spawner.getSpawnerLocation()), spawner);
 
-        // Add to world index
+        // Add to world index atomically so a concurrent expected-instance removal cannot
+        // orphan this insertion into a detached world set.
         String worldName = spawner.getSpawnerLocation().getWorld().getName();
-        worldIndex.computeIfAbsent(worldName, k -> new HashSet<>()).add(spawner);
+        worldIndex.compute(worldName, (k, set) -> {
+            Set<SpawnerData> target = (set != null) ? set : ConcurrentHashMap.newKeySet();
+            target.add(spawner);
+            return target;
+        });
 
         // Queue for saving
         spawnerStorage.queueSpawnerForSaving(id);
@@ -100,13 +105,10 @@ public class SpawnerManager {
 
             // Remove from world index
             String worldName = spawner.getSpawnerLocation().getWorld().getName();
-            Set<SpawnerData> worldSpawners = worldIndex.get(worldName);
-            if (worldSpawners != null) {
+            worldIndex.computeIfPresent(worldName, (k, worldSpawners) -> {
                 worldSpawners.remove(spawner);
-                if (worldSpawners.isEmpty()) {
-                    worldIndex.remove(worldName);
-                }
-            }
+                return worldSpawners.isEmpty() ? null : worldSpawners;
+            });
 
             spawners.remove(id);
         }
@@ -142,22 +144,19 @@ public class SpawnerManager {
         spawners.put(spawnerId, spawner);
         locationIndex.put(new LocationKey(spawner.getSpawnerLocation()), spawner);
 
-        // Add to world index
+        // Add to world index atomically (see addSpawner).
         String worldName = spawner.getSpawnerLocation().getWorld().getName();
-        worldIndex.computeIfAbsent(worldName, k -> new HashSet<>()).add(spawner);
+        worldIndex.compute(worldName, (k, set) -> {
+            Set<SpawnerData> target = (set != null) ? set : ConcurrentHashMap.newKeySet();
+            target.add(spawner);
+            return target;
+        });
     }
 
     public Set<SpawnerData> getSpawnersInWorld(String worldName) {
         return worldIndex.get(worldName);
     }
 
-    /**
-     * Removes all spawners belonging to a world from in-memory indexes.
-     * Used when a world unloads so runtime memory only contains active worlds.
-     *
-     * @param worldName world being unloaded
-     * @return IDs of removed spawners for deferred reloading
-     */
     public Set<String> unloadSpawnersInWorld(String worldName) {
         Set<SpawnerData> worldSpawners = worldIndex.get(worldName);
         if (worldSpawners == null || worldSpawners.isEmpty()) {
@@ -171,11 +170,73 @@ public class SpawnerManager {
             spawner.removeHologram();
             removedSpawnerIds.add(spawner.getSpawnerId());
             spawners.remove(spawner.getSpawnerId());
-            locationIndex.entrySet().removeIf(entry -> entry.getValue() == spawner);
+            locationIndex.remove(new LocationKey(spawner.getSpawnerLocation()));
         }
 
         worldIndex.remove(worldName);
         return removedSpawnerIds;
+    }
+
+    /**
+     * Data-only cleanup path for batch removals, safely removing memory indexes.
+     * Does NOT perform physical block modifications or load chunks.
+     *
+     * @param spawnerIds Set of spawner IDs to completely detach from active indexes.
+     */
+    public Set<String> removeSpawnersDataOnly(Set<String> spawnerIds) {
+        Set<String> removedIds = new HashSet<>();
+        for (String id : spawnerIds) {
+            SpawnerData spawner = spawners.remove(id);
+            if (spawner != null) {
+                removedIds.add(id);
+                Location loc = spawner.getSpawnerLocation();
+                if (loc != null && loc.getWorld() != null) {
+                    locationIndex.remove(new LocationKey(loc));
+
+                    String worldName = loc.getWorld().getName();
+                    worldIndex.computeIfPresent(worldName, (k, worldSpawners) -> {
+                        worldSpawners.remove(spawner);
+                        return worldSpawners.isEmpty() ? null : worldSpawners;
+                    });
+                }
+            }
+        }
+        return removedIds;
+    }
+
+    /**
+     * Expected-instance conditional data-only detach used by Skyllia island cleanup.
+     * Only removes the exact {@code expected} instance, so a replacement created during a
+     * race (same id/location, different object) is never removed. Does NOT modify blocks or load chunks.
+     *
+     * @param id       spawner id to remove
+     * @param expected the exact SpawnerData instance that must currently be indexed
+     * @return true only if the exact expected instance was detached
+     */
+    public boolean removeSpawnerDataOnly(String id, SpawnerData expected) {
+        if (id == null || expected == null) {
+            return false;
+        }
+
+        // Identity-conditional removal: fails if the mapping points at a different instance.
+        boolean removed = spawners.remove(id, expected);
+        if (!removed) {
+            return false;
+        }
+
+        Location loc = expected.getSpawnerLocation();
+        if (loc != null && loc.getWorld() != null) {
+            locationIndex.remove(new LocationKey(loc), expected);
+
+            String worldName = loc.getWorld().getName();
+            // Atomic world-index update: remove only the expected instance and drop the
+            // world set only if it becomes empty, without clobbering concurrent inserts.
+            worldIndex.computeIfPresent(worldName, (k, worldSpawners) -> {
+                worldSpawners.remove(expected);
+                return worldSpawners.isEmpty() ? null : worldSpawners;
+            });
+        }
+        return true;
     }
 
     public void initializeWithoutLoading() {

@@ -84,3 +84,23 @@ This is a manual checklist to verify the SmartSpawner upstream baseline behaves 
 - [ ] no duplicate denial message
 - [ ] reload does not duplicate or stale the hook
 - [ ] no Paper/Folia region-thread warning
+
+## S2B Skyllia Island Deletion Tests (Pending)
+- [ ] cancelled SkyblockDeleteEvent performs no cleanup
+- [ ] failed disable confirmation performs no cleanup
+- [ ] duplicate delete events run one cleanup
+- [ ] island spawners are removed
+- [ ] nearby spawners outside exact bounds remain
+- [ ] spawners on another island remain
+- [ ] generation stops
+- [ ] open Java GUI closes
+- [ ] open Bedrock/FormUI closes where applicable
+- [ ] holograms disappear
+- [ ] hopper tracking is removed
+- [ ] no spawner item drops
+- [ ] no stored items or XP are paid out
+- [ ] no chunk is force-loaded
+- [ ] YAML records remain deleted after restart
+- [ ] SQLite records remain deleted after restart
+- [ ] MariaDB records remain deleted after restart
+- [ ] no Paper/Folia region-thread warning occurs

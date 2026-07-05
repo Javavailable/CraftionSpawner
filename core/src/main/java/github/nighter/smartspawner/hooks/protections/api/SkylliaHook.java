@@ -42,6 +42,8 @@ public class SkylliaHook {
 
     private final SmartSpawner plugin;
     private volatile boolean enabled = false;
+    private volatile boolean listenerRegistered = false;
+    private volatile SkylliaIslandCleanupListener cleanupListener;
     private volatile Plugin skylliaPlugin;
     private volatile PermissionSnapshot permissions;
     private final AtomicLong lastWarningTime = new AtomicLong(0);
@@ -64,6 +66,11 @@ public class SkylliaHook {
             skylliaPlugin = resolvedPlugin;
             permissions = new PermissionSnapshot();
             enabled = true;
+            if (!listenerRegistered) {
+                cleanupListener = new SkylliaIslandCleanupListener(plugin, this);
+                plugin.getServer().getPluginManager().registerEvents(cleanupListener, plugin);
+                listenerRegistered = true;
+            }
             plugin.getLogger().info("Skyllia integration initialized successfully!");
         } catch (NoClassDefFoundError | Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to initialize Skyllia integration: " + e.getMessage());
@@ -77,8 +84,24 @@ public class SkylliaHook {
         return enabled;
     }
 
+    public Plugin getSkylliaPlugin() {
+        return skylliaPlugin;
+    }
+
     public void reload() {
         initialize();
+    }
+
+    public void shutdown() {
+        enabled = false;
+        if (cleanupListener != null) {
+            cleanupListener.shutdown();
+            org.bukkit.event.HandlerList.unregisterAll(cleanupListener);
+            cleanupListener = null;
+        }
+        listenerRegistered = false;
+        skylliaPlugin = null;
+        permissions = null;
     }
 
     public ProtectionDecision canInteract(Player player, Location location, SpawnerAction action) {

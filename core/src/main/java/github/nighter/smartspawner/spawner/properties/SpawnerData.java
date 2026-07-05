@@ -39,6 +39,10 @@ public class SpawnerData {
     // All operations that touch virtual inventory must check isSelling() before proceeding.
     private final AtomicBoolean selling = new AtomicBoolean(false);
 
+    // Atomic removal claim (S2B Skyllia island cleanup). When set, this spawner is being
+    // detached: no sale may start, and stale references must not resurrect a queued deletion.
+    private final AtomicBoolean removalPending = new AtomicBoolean(false);
+
     // Dirty flag for storage GUI – set when items are moved/dropped inside the storage GUI,
     // cleared (and spawner queued for save) when the GUI is closed or main menu is returned to.
     private final AtomicBoolean storageDirty = new AtomicBoolean(false);
@@ -514,15 +518,61 @@ public class SpawnerData {
 
     /**
      * Atomically transitions the spawner into selling state.
-     * @return true if the transition succeeded (caller owns the sell), false if already selling
+     * <p>Refuses to start when a removal has been claimed, and re-checks the removal claim
+     * after acquiring selling so a removal that wins concurrently cannot be overrun.
+     * @return true if the transition succeeded (caller owns the sell), false otherwise
      */
     public boolean startSelling() {
-        return selling.compareAndSet(false, true);
+        // 1. Refuse if a removal claim is already active.
+        if (removalPending.get()) {
+            return false;
+        }
+        // 2. Acquire the selling state.
+        if (!selling.compareAndSet(false, true)) {
+            return false;
+        }
+        // 3. Re-check removal after acquiring selling to close the check-then-act race.
+        if (removalPending.get()) {
+            // 4. Removal won the race: release selling and abort.
+            selling.set(false);
+            return false;
+        }
+        // 5. Sale ownership confirmed.
+        return true;
     }
 
     /** Releases the selling state so other operations may proceed. */
     public void stopSelling() {
         selling.set(false);
+    }
+
+    /**
+     * Atomically claims this spawner for removal (Skyllia island cleanup).
+     * Fails if a sale is in progress, guaranteeing detach and sell are mutually exclusive.
+     * @return true if the removal claim was acquired, false if a sale is active or removal already claimed
+     */
+    public boolean tryBeginRemoval() {
+        // 1. Claim removal first so a concurrent startSelling() observes it.
+        if (!removalPending.compareAndSet(false, true)) {
+            return false;
+        }
+        // 2-3. If a sale is already active, back out the claim and let the sale finish.
+        if (selling.get()) {
+            removalPending.set(false);
+            return false;
+        }
+        // 4. Removal ownership confirmed.
+        return true;
+    }
+
+    /** Releases a removal claim when cleanup is deferred or detachment did not happen. */
+    public void cancelRemoval() {
+        removalPending.set(false);
+    }
+
+    /** @return true if this spawner has an active removal claim. */
+    public boolean isRemovalPending() {
+        return removalPending.get();
     }
 
     /** @return true if the storage GUI content was modified since last save. */

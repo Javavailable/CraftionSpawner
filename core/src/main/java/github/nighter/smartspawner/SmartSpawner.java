@@ -573,6 +573,10 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
     }
 
     private void saveAndCleanup() {
+        if (integrationManager != null) {
+            integrationManager.shutdown();
+        }
+
         if (spawnerManager != null) {
             try {
                 // Use the storage interface for shutdown

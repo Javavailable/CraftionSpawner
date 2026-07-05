@@ -225,6 +225,12 @@ public class IntegrationManager {
         }
     }
 
+    public void shutdown() {
+        if (skylliaHook != null) {
+            skylliaHook.shutdown();
+        }
+    }
+
     @FunctionalInterface
     private interface PluginCheck {
         boolean check();

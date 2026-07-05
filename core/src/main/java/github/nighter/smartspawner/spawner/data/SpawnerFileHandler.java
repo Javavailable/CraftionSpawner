@@ -86,10 +86,14 @@ public class SpawnerFileHandler implements SpawnerStorage {
 
     @Override
     public void markSpawnerModified(String spawnerId) {
-        if (spawnerId != null) {
-            dirtySpawners.add(spawnerId);
-            deletedSpawners.remove(spawnerId);
+        if (spawnerId == null) {
+            return;
         }
+        // A queued deletion is a tombstone and must win over stale update requests.
+        if (deletedSpawners.contains(spawnerId)) {
+            return;
+        }
+        dirtySpawners.add(spawnerId);
     }
 
     @Override
@@ -116,9 +120,12 @@ public class SpawnerFileHandler implements SpawnerStorage {
         plugin.debug("Flushing " + dirtySpawners.size() + " modified and " + deletedSpawners.size() + " deleted spawners");
 
         Scheduler.runTaskAsync(() -> {
+            Set<String> toUpdate = new HashSet<>();
+            Set<String> toDelete = new HashSet<>();
+
             try {
                 if (!dirtySpawners.isEmpty()) {
-                    Set<String> toUpdate = new HashSet<>(dirtySpawners);
+                    toUpdate.addAll(dirtySpawners);
                     dirtySpawners.removeAll(toUpdate);
 
                     Map<String, SpawnerData> batch = new HashMap<>();
@@ -135,7 +142,7 @@ public class SpawnerFileHandler implements SpawnerStorage {
                 }
 
                 if (!deletedSpawners.isEmpty()) {
-                    Set<String> toDelete = new HashSet<>(deletedSpawners);
+                    toDelete.addAll(deletedSpawners);
                     deletedSpawners.removeAll(toDelete);
 
                     for (String id : toDelete) {
@@ -148,17 +155,12 @@ public class SpawnerFileHandler implements SpawnerStorage {
                     }
                 }
 
-                // Automatic ghost spawner check removed - use /ss clear ghost_spawners command instead
             } catch (Exception e) {
                 plugin.getLogger().severe("Error during flush: " + e.getMessage());
                 e.printStackTrace();
 
-                for (String id : dirtySpawners) {
-                    dirtySpawners.add(id);
-                }
-                for (String id : deletedSpawners) {
-                    deletedSpawners.add(id);
-                }
+                dirtySpawners.addAll(toUpdate);
+                deletedSpawners.addAll(toDelete);
             } finally {
                 isSaving = false;
             }

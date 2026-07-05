@@ -179,10 +179,14 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
 
     @Override
     public void markSpawnerModified(String spawnerId) {
-        if (spawnerId != null) {
-            dirtySpawners.add(spawnerId);
-            deletedSpawners.remove(spawnerId);
+        if (spawnerId == null) {
+            return;
         }
+        // A queued deletion is a tombstone and must win over stale update requests.
+        if (deletedSpawners.contains(spawnerId)) {
+            return;
+        }
+        dirtySpawners.add(spawnerId);
     }
 
     @Override
@@ -215,10 +219,14 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
         plugin.debug("Flushing " + dirtySpawners.size() + " modified and " + deletedSpawners.size() + " deleted spawners to database");
 
         Scheduler.runTaskAsync(() -> {
+            // Capture stable snapshots OUTSIDE the try so they can be requeued on failure.
+            Set<String> toUpdate = new HashSet<>();
+            Set<String> toDelete = new HashSet<>();
+
             try {
                 // Handle updates
                 if (!dirtySpawners.isEmpty()) {
-                    Set<String> toUpdate = new HashSet<>(dirtySpawners);
+                    toUpdate.addAll(dirtySpawners);
                     dirtySpawners.removeAll(toUpdate);
 
                     saveSpawnerBatch(toUpdate);
@@ -226,15 +234,17 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
 
                 // Handle deletes
                 if (!deletedSpawners.isEmpty()) {
-                    Set<String> toDelete = new HashSet<>(deletedSpawners);
+                    toDelete.addAll(deletedSpawners);
                     deletedSpawners.removeAll(toDelete);
 
                     deleteSpawnerBatch(toDelete);
                 }
             } catch (Exception e) {
                 logger.log(Level.SEVERE, "Error during database flush", e);
-                // Re-add failed items back to dirty lists
-                // Note: In production, might want more sophisticated retry logic
+                // Requeue snapshots so nothing is silently dropped. Upserts and deletes are
+                // idempotent, and re-queuing updates never clears a deletion tombstone.
+                dirtySpawners.addAll(toUpdate);
+                deletedSpawners.addAll(toDelete);
             } finally {
                 isSaving = false;
             }
