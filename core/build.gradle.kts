@@ -46,7 +46,7 @@ dependencies {
     }
 
     compileOnly("io.lumine:Mythic-Dist:5.12.1")
-    compileOnly("com.iridium:IridiumSkyblock:4.1.4")
+    compileOnly("maven.modrinth:iridiumskyblock:4.1.4")
 
     implementation(platform("com.intellectualsites.bom:bom-newest:1.56"))
     compileOnly("com.intellectualsites.plotsquared:plotsquared-core")

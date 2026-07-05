@@ -51,8 +51,8 @@ allprojects {
             url = uri("https://repo.nightexpressdev.com/releases")
         }
         maven {
-            name = "iridiumdevelopment"
-            url = uri("https://nexus.iridiumdevelopment.net/repository/maven-releases/")
+            name = "modrinth"
+            url = uri("https://api.modrinth.com/maven")
         }
         maven {
             name = "Lumine Releases"
