@@ -2,6 +2,7 @@ package github.nighter.smartspawner.spawner.lootgen;
 
 import github.nighter.smartspawner.SmartSpawner;
 import github.nighter.smartspawner.api.SmartSpawnerAPIImpl;
+import github.nighter.smartspawner.api.data.SpawnerDataDTO;
 import github.nighter.smartspawner.api.output.SpawnerOutputContext;
 import github.nighter.smartspawner.api.output.SpawnerOutputResult;
 import github.nighter.smartspawner.api.output.SpawnerOutputRouterRegistryImpl;
@@ -98,24 +99,32 @@ public class SpawnerOutputRoutingService {
      *         router pass was actually attempted against a non-empty snapshot
      */
     public RoutingOutcome route(SpawnerData spawner, List<ItemStack> generated) {
-        List<RegisteredRouter> snapshot = registry.getSnapshot();
+        return route(SmartSpawnerAPIImpl.convertToDTO(spawner), generated, registry.getSnapshot());
+    }
+
+    /*
+     * Package-private pure-routing seam for deterministic unit tests. Callers supply the exact
+     * immutable router snapshot to verify unregister/register races without constructing a plugin.
+     */
+    RoutingOutcome route(SpawnerDataDTO spawnerSnapshot, List<ItemStack> generated, List<RegisteredRouter> snapshot) {
+        List<RegisteredRouter> effectiveSnapshot = snapshot != null ? snapshot : List.of();
         List<ItemStack> remaining = deepClone(generated);
 
-        if (snapshot.isEmpty() || remaining.isEmpty()) {
+        if (effectiveSnapshot.isEmpty() || remaining.isEmpty()) {
             return new RoutingOutcome(remaining, false, false);
         }
 
         final long originalTotal = totalQuantity(remaining);
         boolean attempted = false;
 
-        for (RegisteredRouter entry : snapshot) {
+        for (RegisteredRouter entry : effectiveSnapshot) {
             if (remaining.isEmpty()) {
                 break;
             }
 
             // Immutable context with a deep clone of the CURRENT remaining batch only.
             SpawnerOutputContext context = new SpawnerOutputContext(
-                    SmartSpawnerAPIImpl.convertToDTO(spawner),
+                    spawnerSnapshot,
                     remaining);
 
             // A router invocation is now being attempted against this non-empty snapshot.
@@ -186,8 +195,10 @@ public class SpawnerOutputRoutingService {
             return; // rate-limited: avoid one warning per generation tick
         }
         lastWarnByKey.put(k, now);
-        plugin.getLogger().warning("Output router '" + k + "' " + detail
-                + "; ignoring it for this batch (fail-open, generated items preserved).");
+        if (plugin != null && plugin.getLogger() != null) {
+            plugin.getLogger().warning("Output router '" + k + "' " + detail
+                    + "; ignoring it for this batch (fail-open, generated items preserved).");
+        }
     }
 
     private static List<ItemStack> deepClone(List<ItemStack> items) {

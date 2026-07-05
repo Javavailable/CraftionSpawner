@@ -4,9 +4,7 @@ import github.nighter.smartspawner.SmartSpawner;
 import github.nighter.smartspawner.Scheduler;
 import github.nighter.smartspawner.spawner.properties.SpawnerData;
 import org.bukkit.Location;
-import org.bukkit.inventory.ItemStack;
 
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -100,7 +98,7 @@ public final class LootPreGenerationHelper {
                     // Only spawn if still within early threshold
                     if (remainingTime > 0 && remainingTime <= EARLY_SPAWN_THRESHOLD) {
                         if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
-                            spawner.clearPreGeneratedLoot();
+                            spawner.resetGeneratedLootState();
                             return;
                         }
 
@@ -111,16 +109,19 @@ public final class LootPreGenerationHelper {
 
                             Scheduler.runLocationTask(spawnerLocation, () -> {
                                 if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
-                                    spawner.clearPreGeneratedLoot();
+                                    spawner.resetGeneratedLootState();
                                     return;
                                 }
 
                                 if (spawner.hasPreGeneratedLoot()) {
-                                    List<ItemStack> items = spawner.getAndClearPreGeneratedItems();
-                                    long exp = spawner.getAndClearPreGeneratedExperience();
+                                    SpawnerData.PreGeneratedLootBatch batch = spawner.claimPreGeneratedLootBatch();
+                                    if (batch == null) {
+                                        return;
+                                    }
 
                                     // Add the loot with scheduled spawn time for accurate timer reset
-                                    plugin.getSpawnerLootGenerator().addPreGeneratedLoot(spawner, items, exp, scheduledSpawnTime);
+                                    plugin.getSpawnerLootGenerator().addPreGeneratedLoot(
+                                            spawner, batch.getItems(), batch.getExperience(), scheduledSpawnTime);
                                 }
                             });
                         }

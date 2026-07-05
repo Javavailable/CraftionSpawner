@@ -319,7 +319,7 @@ public class TimerUpdateService {
      * @param spawner The spawner
      */
     public void forceTimerUpdateInactive(Player player, SpawnerData spawner) {
-        spawner.clearPreGeneratedLoot();
+        spawner.resetGeneratedLootState();
         if (!isTimerPlaceholdersEnabled()) {
             return;
         }
@@ -366,7 +366,7 @@ public class TimerUpdateService {
         }
 
         if (spawner.getSpawnerStop().get()) {
-            spawner.clearPreGeneratedLoot();
+            spawner.resetGeneratedLootState();
             return cachedInactiveText;
         }
 

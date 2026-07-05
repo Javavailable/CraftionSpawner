@@ -28,10 +28,13 @@ public class SpawnerLootGenerator {
     // Bounded, non-blocking retry for the pre-generated commit when a transient lock is unavailable.
     private static final int PREGEN_MAX_COMMIT_ATTEMPTS = 5;
     private static final long PREGEN_RETRY_DELAY_TICKS = 2L;
+    private static final long PREGEN_HANDOFF_DRAIN_PERIOD_TICKS = 20L;
     private static final long PREGEN_WARN_INTERVAL_MS = 60_000L;
 
     // Rate-limited warnings for pre-gen exhaustion requeue events (per spawner ID).
     private final ConcurrentHashMap<String, Long> lastPreGenWarnById = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<HandoffKey, PendingHandoff> pendingHandoffs = new ConcurrentHashMap<>();
+    private final Scheduler.Task pendingHandoffDrainTask;
 
     /**
      * Outcome of a single {@link #commitGeneratedLoot} attempt.
@@ -55,6 +58,10 @@ public class SpawnerLootGenerator {
         this.spawnerGuiViewManager = plugin.getSpawnerGuiViewManager();
         this.spawnerManager = plugin.getSpawnerManager();
         this.outputRoutingService = plugin.getSpawnerOutputRoutingService();
+        this.pendingHandoffDrainTask = Scheduler.runTaskTimer(
+                this::drainPendingHandoffs,
+                PREGEN_HANDOFF_DRAIN_PERIOD_TICKS,
+                PREGEN_HANDOFF_DRAIN_PERIOD_TICKS);
     }
 
     public void spawnLootToSpawner(SpawnerData spawner) {
@@ -306,6 +313,27 @@ public class SpawnerLootGenerator {
     }
 
     /**
+     * Strict handoff-drain guard. Callers must hold the shared location lock for {@code expectedLoc}.
+     */
+    private boolean isCurrentExactInstance(SpawnerData spawner, String expectedId, Location expectedLoc) {
+        if (spawner == null || expectedId == null || expectedLoc == null || spawner.isRemovalPending()) {
+            return false;
+        }
+        SpawnerRemovalService removalService = plugin.getSpawnerRemovalService();
+        if (removalService != null && removalService.isRemovalPending(spawner)) {
+            return false;
+        }
+        if (!expectedId.equals(spawner.getSpawnerId())) {
+            return false;
+        }
+        if (spawner.getSpawnerLocation() != expectedLoc) {
+            return false;
+        }
+        return spawnerManager.getSpawnerById(expectedId) == spawner
+                && spawnerManager.getSpawnerByLocation(expectedLoc) == spawner;
+    }
+
+    /**
      * Single, race-safe commit used by BOTH loot paths.
      *
      * <p>Must be called on the spawner's location execution context while holding the loot
@@ -327,6 +355,7 @@ public class SpawnerLootGenerator {
     private CommitStatus commitGeneratedLoot(SpawnerData spawner, List<ItemStack> generatedItems, long experience, long spawnTime) {
         Location loc = spawner.getSpawnerLocation();
         if (loc == null) {
+            spawner.resetGeneratedLootState();
             return CommitStatus.ABORTED_STALE;
         }
 
@@ -334,9 +363,12 @@ public class SpawnerLootGenerator {
         if (lockManager == null || !lockManager.tryLock(loc)) {
             return CommitStatus.LOCK_UNAVAILABLE;
         }
+        SpawnerData.PendingCommitClaim pendingClaim = null;
+        boolean pendingClaimAcked = false;
         try {
             // Removal / stale-instance safety under the shared lock.
             if (isStaleOrRemoving(spawner)) {
+                spawner.resetGeneratedLootState();
                 return CommitStatus.ABORTED_STALE;
             }
 
@@ -357,15 +389,16 @@ public class SpawnerLootGenerator {
                     inventoryHeld = true;
                 }
 
-                // Drain any requeued pre-generated batch and merge it with fresh loot.
-                SpawnerData.PreGeneratedLootBatch pending = spawner.takePendingCommitBatch();
+                // Claim any requeued pre-generated batches and merge them with fresh loot. The
+                // pending entries remain in SpawnerData until this commit returns COMMITTED.
+                pendingClaim = spawner.claimPendingCommitBatches();
                 List<ItemStack> effectiveItems;
                 long effectiveExperience;
-                if (pending != null) {
+                if (pendingClaim != null) {
                     effectiveItems = new ArrayList<>();
                     if (generatedItems != null) effectiveItems.addAll(generatedItems);
-                    effectiveItems.addAll(pending.getItems());
-                    effectiveExperience = saturatedAdd(experience, pending.getExperience());
+                    effectiveItems.addAll(pendingClaim.getItems());
+                    effectiveExperience = saturatedAdd(experience, pendingClaim.getExperience());
                 } else {
                     effectiveItems = generatedItems;
                     effectiveExperience = experience;
@@ -436,8 +469,15 @@ public class SpawnerLootGenerator {
             spawner.updateCapacityStatus();
             handleGuiUpdates(spawner);
             spawnerManager.markSpawnerModified(spawner.getSpawnerId());
+            if (pendingClaim != null) {
+                spawner.ackPendingCommitClaim(pendingClaim);
+                pendingClaimAcked = true;
+            }
             return CommitStatus.COMMITTED;
         } finally {
+            if (pendingClaim != null && !pendingClaimAcked) {
+                spawner.releasePendingCommitClaim(pendingClaim);
+            }
             // Never call removeLock() from the generation path; the periodic cleanup task
             // reclaims unused locks so a second lock object can never be created for the location.
             lockManager.unlock(loc);
@@ -549,7 +589,8 @@ public class SpawnerLootGenerator {
      * identical to the normal path. A transient lock failure retries the SAME owned clones in a
      * bounded, non-blocking manner. On retry exhaustion (all locks busy for the full budget), the
      * batch is requeued into the spawner's pending-commit holder and flushed by the next generation
-     * commit, so the already-cleared batch is neither lost nor routed twice.
+     * commit via a single managed handoff drain, so the already-cleared batch is neither lost nor
+     * routed twice.
      */
     public void addPreGeneratedLoot(SpawnerData spawner, List<ItemStack> items, long experience, long spawnTime) {
         if ((items == null || items.isEmpty()) && experience == 0) {
@@ -604,12 +645,10 @@ public class SpawnerLootGenerator {
                                           long experience, long spawnTime, int attempt) {
         if (attempt + 1 >= PREGEN_MAX_COMMIT_ATTEMPTS) {
             // Retry budget exhausted. Never silently discard the already-cleared batch:
-            // requeue the SAME owned clones into the spawner's pending-commit holder so the
-            // next generation commit will flush them. Only skip if the spawner is stale/removed.
-            if (!isStaleOrRemoving(spawner)) {
-                spawner.queuePendingCommitBatch(ownedItems, experience);
-                warnPreGenRequeue(spawner);
-            }
+            // merge the SAME owned clones into the generator-owned handoff queue. A single
+            // periodic drain will later claim the location lock, re-check exact identity/removal
+            // state, and only then queue the batch into SpawnerData pending commit state.
+            queuePendingHandoff(spawner, ownedItems, experience);
             return;
         }
         Scheduler.runTaskLaterAsync(
@@ -625,7 +664,135 @@ public class SpawnerLootGenerator {
         lastPreGenWarnById.put(id, now);
         plugin.getLogger().warning("Pre-generated loot for spawner " + id
                 + " could not commit after " + PREGEN_MAX_COMMIT_ATTEMPTS
-                + " attempts (locks busy); batch requeued for the next generation commit.");
+                + " attempts (locks busy); batch queued for pending handoff drain.");
+    }
+
+    private void queuePendingHandoff(SpawnerData spawner, List<ItemStack> ownedItems, long experience) {
+        if (spawner == null || ((ownedItems == null || ownedItems.isEmpty()) && experience <= 0L)) {
+            return;
+        }
+
+        Location location = spawner.getSpawnerLocation();
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+
+        HandoffKey key = new HandoffKey(spawner);
+        PendingHandoff handoff = new PendingHandoff(spawner, spawner.getSpawnerId(), location, ownedItems, experience);
+        pendingHandoffs.merge(key, handoff, PendingHandoff::merge);
+        warnPreGenRequeue(spawner);
+    }
+
+    private void drainPendingHandoffs() {
+        if (pendingHandoffs.isEmpty()) {
+            return;
+        }
+
+        SpawnerLocationLockManager lockManager = plugin.getSpawnerLocationLockManager();
+        if (lockManager == null) {
+            return;
+        }
+
+        for (Map.Entry<HandoffKey, PendingHandoff> entry : pendingHandoffs.entrySet()) {
+            PendingHandoff handoff = entry.getValue();
+            Location location = handoff.location;
+            if (location == null || location.getWorld() == null) {
+                pendingHandoffs.remove(entry.getKey(), handoff);
+                continue;
+            }
+
+            if (!lockManager.tryLock(location)) {
+                continue;
+            }
+
+            try {
+                if (!isCurrentExactInstance(handoff.spawner, handoff.spawnerId, location)) {
+                    pendingHandoffs.remove(entry.getKey(), handoff);
+                    continue;
+                }
+
+                if (pendingHandoffs.remove(entry.getKey(), handoff)) {
+                    handoff.spawner.queuePendingCommitBatch(handoff.items, handoff.experience);
+                }
+            } finally {
+                lockManager.unlock(location);
+            }
+        }
+    }
+
+    public void shutdown() {
+        if (pendingHandoffDrainTask != null) {
+            pendingHandoffDrainTask.cancel();
+        }
+
+        int unresolved = pendingHandoffs.size();
+        if (unresolved > 0) {
+            plugin.getLogger().warning("Discarding " + unresolved
+                    + " unresolved pre-generated pending handoff batch(es) during shutdown.");
+            pendingHandoffs.clear();
+        }
+        lastPreGenWarnById.clear();
+    }
+
+    private static List<ItemStack> deepCloneItems(List<ItemStack> items) {
+        List<ItemStack> copy = new ArrayList<>(items == null ? 0 : items.size());
+        if (items != null) {
+            for (ItemStack item : items) {
+                if (item != null && item.getType() != Material.AIR && item.getAmount() > 0) {
+                    copy.add(item.clone());
+                }
+            }
+        }
+        return copy;
+    }
+
+    private static final class HandoffKey {
+        private final SpawnerData spawner;
+        private final int identityHash;
+
+        private HandoffKey(SpawnerData spawner) {
+            this.spawner = spawner;
+            this.identityHash = System.identityHashCode(spawner);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof HandoffKey other && spawner == other.spawner;
+        }
+
+        @Override
+        public int hashCode() {
+            return identityHash;
+        }
+    }
+
+    private static final class PendingHandoff {
+        private final SpawnerData spawner;
+        private final String spawnerId;
+        private final Location location;
+        private final List<ItemStack> items;
+        private final long experience;
+
+        private PendingHandoff(SpawnerData spawner, String spawnerId, Location location,
+                               List<ItemStack> items, long experience) {
+            this.spawner = spawner;
+            this.spawnerId = spawnerId;
+            this.location = location;
+            this.items = Collections.unmodifiableList(deepCloneItems(items));
+            this.experience = Math.max(0L, experience);
+        }
+
+        private PendingHandoff merge(PendingHandoff other) {
+            List<ItemStack> mergedItems = new ArrayList<>(items.size() + other.items.size());
+            mergedItems.addAll(deepCloneItems(items));
+            mergedItems.addAll(deepCloneItems(other.items));
+            return new PendingHandoff(
+                    spawner,
+                    spawnerId,
+                    location,
+                    mergedItems,
+                    saturatedAdd(experience, other.experience));
+        }
     }
 
     @FunctionalInterface

@@ -8,7 +8,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 
 import java.util.*;
 import java.util.concurrent.ExecutorService;
@@ -109,10 +108,10 @@ public class SpawnerRangeChecker {
     }
 
     private void cleanupRemovedSpawner(String spawnerId) {
-        // Clear any pre-generated loot when spawner is removed
+        // Clear any generated-output state when spawner is removed
         SpawnerData spawner = spawnerManager.getSpawnerById(spawnerId);
         if (spawner != null) {
-            spawner.clearPreGeneratedLoot();
+            spawner.resetGeneratedLootState();
         }
     }
 
@@ -148,8 +147,8 @@ public class SpawnerRangeChecker {
     }
 
     public void deactivateSpawner(SpawnerData spawner) {
-        // Clear any pre-generated loot when deactivating
-        spawner.clearPreGeneratedLoot();
+        // Deactivation discards pre-generated/pending output instead of preserving it across reset.
+        spawner.resetGeneratedLootState();
     }
 
     /**
@@ -190,7 +189,7 @@ public class SpawnerRangeChecker {
                                 Scheduler.runLocationTask(spawnerLocation, () -> {
                                     // Final check before spawning
                                     if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
-                                        spawner.clearPreGeneratedLoot();
+                                        spawner.resetGeneratedLootState();
                                         return;
                                     }
 
@@ -207,9 +206,11 @@ public class SpawnerRangeChecker {
 
                                     // Spawn loot (pre-generated if available, otherwise generate new)
                                     if (spawner.hasPreGeneratedLoot()) {
-                                        List<ItemStack> items = spawner.getAndClearPreGeneratedItems();
-                                        long exp = spawner.getAndClearPreGeneratedExperience();
-                                        plugin.getSpawnerLootGenerator().addPreGeneratedLoot(spawner, items, exp);
+                                        SpawnerData.PreGeneratedLootBatch batch = spawner.claimPreGeneratedLootBatch();
+                                        if (batch != null) {
+                                            plugin.getSpawnerLootGenerator().addPreGeneratedLoot(
+                                                    spawner, batch.getItems(), batch.getExperience());
+                                        }
                                     } else {
                                         plugin.getSpawnerLootGenerator().spawnLootToSpawner(spawner);
                                     }
@@ -245,4 +246,3 @@ public class SpawnerRangeChecker {
         }
     }
 }
-

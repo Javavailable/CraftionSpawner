@@ -20,6 +20,7 @@ class ApiBytecodeVersionTest {
     @Test
     void publicApiClassesAreCompiledForJava21() throws Exception {
         assertMajorVersion("/github/nighter/smartspawner/api/SmartSpawnerAPI.class", JAVA_21_MAJOR);
+        assertMajorVersion("/github/nighter/smartspawner/api/SmartSpawnerProvider.class", JAVA_21_MAJOR);
         assertMajorVersion("/github/nighter/smartspawner/api/output/SpawnerOutputRouter.class", JAVA_21_MAJOR);
         assertMajorVersion("/github/nighter/smartspawner/api/output/SpawnerOutputContext.class", JAVA_21_MAJOR);
         assertMajorVersion("/github/nighter/smartspawner/api/output/SpawnerOutputResult.class", JAVA_21_MAJOR);

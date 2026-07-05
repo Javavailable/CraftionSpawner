@@ -8,6 +8,9 @@ plugins {
 val shade: Configuration by configurations.creating
 configurations {
     implementation.get().extendsFrom(shade)
+    testRuntimeClasspath {
+        exclude(group = "com.technicjelle", module = "BMUtils")
+    }
 }
 
 dependencies {
@@ -60,6 +63,9 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    // Test-only mirror of the production compileOnly WorldGuard edge. Without it, Residence's
+    // older transitive WorldGuard request pulls conflicting strict Mojang constraints into tests.
+    testImplementation("com.sk89q.worldguard:worldguard-bukkit:7.1.0-SNAPSHOT")
 }
 
 tasks.test {

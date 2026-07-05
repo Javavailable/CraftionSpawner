@@ -97,6 +97,7 @@ public class SpawnerManager {
     public void removeSpawner(String id) {
         SpawnerData spawner = spawners.get(id);
         if (spawner != null) {
+            spawner.resetGeneratedLootState();
             Location loc = spawner.getSpawnerLocation();
             // Run hologram removal on location thread
             Scheduler.runLocationTask(loc, spawner::removeHologram);
@@ -167,6 +168,7 @@ public class SpawnerManager {
         Set<SpawnerData> snapshot = new HashSet<>(worldSpawners);
 
         for (SpawnerData spawner : snapshot) {
+            spawner.resetGeneratedLootState();
             spawner.removeHologram();
             removedSpawnerIds.add(spawner.getSpawnerId());
             spawners.remove(spawner.getSpawnerId());
@@ -188,6 +190,7 @@ public class SpawnerManager {
         for (String id : spawnerIds) {
             SpawnerData spawner = spawners.remove(id);
             if (spawner != null) {
+                spawner.resetGeneratedLootState();
                 removedIds.add(id);
                 Location loc = spawner.getSpawnerLocation();
                 if (loc != null && loc.getWorld() != null) {
@@ -224,6 +227,7 @@ public class SpawnerManager {
             return false;
         }
 
+        expected.resetGeneratedLootState();
         Location loc = expected.getSpawnerLocation();
         if (loc != null && loc.getWorld() != null) {
             locationIndex.remove(new LocationKey(loc), expected);
@@ -240,6 +244,10 @@ public class SpawnerManager {
     }
 
     public void initializeWithoutLoading() {
+        for (SpawnerData spawner : spawners.values()) {
+            spawner.resetGeneratedLootState();
+        }
+
         // Clear existing data
         spawners.clear();
         locationIndex.clear();
@@ -335,6 +343,9 @@ public class SpawnerManager {
     }
 
     public void cleanupAllSpawners() {
+        for (SpawnerData spawner : spawners.values()) {
+            spawner.resetGeneratedLootState();
+        }
         spawners.clear();
         locationIndex.clear();
         worldIndex.clear();
