@@ -5,6 +5,7 @@ import github.nighter.smartspawner.api.SmartSpawnerAPIImpl;
 import github.nighter.smartspawner.api.SmartSpawnerPlugin;
 import github.nighter.smartspawner.api.gui.ExternalGuiLayoutLoader;
 import github.nighter.smartspawner.api.gui.GuiLayoutRegistryImpl;
+import github.nighter.smartspawner.api.output.SpawnerOutputRouterRegistryImpl;
 import github.nighter.smartspawner.commands.BrigadierCommandManager;
 import github.nighter.smartspawner.commands.list.ListSubCommand;
 import github.nighter.smartspawner.commands.list.gui.adminstacker.AdminStackerHandler;
@@ -62,6 +63,7 @@ import github.nighter.smartspawner.spawner.interactions.stack.SpawnerStackHandle
 import github.nighter.smartspawner.spawner.interactions.type.SpawnEggHandler;
 import github.nighter.smartspawner.spawner.item.SpawnerItemFactory;
 import github.nighter.smartspawner.spawner.lootgen.SpawnerLootGenerator;
+import github.nighter.smartspawner.spawner.lootgen.SpawnerOutputRoutingService;
 import github.nighter.smartspawner.spawner.lootgen.SpawnerRangeChecker;
 import github.nighter.smartspawner.spawner.natural.NaturalSpawnerListener;
 import github.nighter.smartspawner.spawner.properties.SpawnerData;
@@ -175,6 +177,10 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
 
     // API implementation
     private SmartSpawnerAPIImpl apiImpl;
+
+    // Output router (S3)
+    private SpawnerOutputRouterRegistryImpl outputRouterRegistry;
+    private SpawnerOutputRoutingService spawnerOutputRoutingService;
 
     @Override
     public void onEnable() {
@@ -298,6 +304,10 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
         this.spawnerMenuUI = new SpawnerMenuUI(this);
         this.spawnerSellConfirmUI = new SpawnerSellConfirmUI(this);
         this.spawnerGuiViewManager = new SpawnerGuiViewManager(this);
+        // Output router registry + routing service must exist before the loot generator,
+        // which reads the routing service in its constructor.
+        this.outputRouterRegistry = new SpawnerOutputRouterRegistryImpl();
+        this.spawnerOutputRoutingService = new SpawnerOutputRoutingService(this, outputRouterRegistry);
         this.spawnerLootGenerator = new SpawnerLootGenerator(this);
         this.spawnerSellManager = new SpawnerSellManager(this);
         this.rangeChecker = new SpawnerRangeChecker(this);

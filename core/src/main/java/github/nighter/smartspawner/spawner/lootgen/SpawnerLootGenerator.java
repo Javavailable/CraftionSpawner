@@ -21,11 +21,13 @@ public class SpawnerLootGenerator {
     private final SmartSpawner plugin;
     private final SpawnerGuiViewManager spawnerGuiViewManager;
     private final SpawnerManager spawnerManager;
+    private final SpawnerOutputRoutingService outputRoutingService;
 
     public SpawnerLootGenerator(SmartSpawner plugin) {
         this.plugin = plugin;
         this.spawnerGuiViewManager = plugin.getSpawnerGuiViewManager();
         this.spawnerManager = plugin.getSpawnerManager();
+        this.outputRoutingService = plugin.getSpawnerOutputRoutingService();
     }
 
     public void spawnLootToSpawner(SpawnerData spawner) {
@@ -61,23 +63,25 @@ public class SpawnerLootGenerator {
             final long spawnTime;
             final int minMobs;
             final int maxMobs;
-            final AtomicInteger usedSlots;
-            final AtomicInteger maxSlots;
 
             try {
                 // Timing is now managed by SpawnerRangeChecker (timer) and SpawnerGuiViewManager (spawn trigger)
                 // No need for time check here since spawn is only called when timer expires
 
-                // Get exact inventory slot usage
-                usedSlots = new AtomicInteger(spawner.getVirtualInventory().getUsedSlots());
-                maxSlots = new AtomicInteger(spawner.getMaxSpawnerLootSlots());
+                boolean routersActive = outputRoutingService != null && outputRoutingService.hasActiveRouters();
 
-                // Check if both inventory and exp are full, only then skip loot generation
-                if (usedSlots.get() >= maxSlots.get() && spawner.getSpawnerExp() >= spawner.getMaxStoredExp()) {
+                // Get exact inventory slot usage
+                int usedSlots = spawner.getVirtualInventory().getUsedSlots();
+                int maxSlots = spawner.getMaxSpawnerLootSlots();
+
+                // Check if both inventory and exp are full, only then skip loot generation.
+                // When an output router is active, full internal storage must NOT suppress generation:
+                // routers get first chance to consume the generated items.
+                if (!routersActive && usedSlots >= maxSlots && spawner.getSpawnerExp() >= spawner.getMaxStoredExp()) {
                     if (!spawner.getIsAtCapacity()) {
                         spawner.setIsAtCapacity(true);
                     }
-                    return; // Skip generation if both exp and inventory are full
+                    return; // Skip generation if both exp and inventory are full and no router can consume
                 }
 
                 // Important: Store the current values we need for async processing
@@ -99,7 +103,8 @@ public class SpawnerLootGenerator {
                     return;
                 }
 
-                // Switch back to main thread for Bukkit API calls using location-aware scheduling
+                // Switch back to main thread for Bukkit API calls using location-aware scheduling.
+                // Router execution and all state mutation happen here, in the safe commit phase.
                 Scheduler.runLocationTask(spawner.getSpawnerLocation(), () -> {
                     // Re-acquire the lock for the update phase
                     // This ensures the spawner hasn't been modified (like stack size changes)
@@ -111,10 +116,17 @@ public class SpawnerLootGenerator {
                     }
 
                     try {
+                        // Removal / stale-instance safety: never route or commit onto a stale or
+                        // removal-claimed spawner (preserves S2B tombstone/expected-instance guards).
+                        if (isStaleOrRemoving(spawner)) {
+                            return;
+                        }
+
                         // Modified approach: Handle items and exp separately
                         boolean changed = false;
 
-                        // Process experience if there's any to add and not at max
+                        // Process experience if there's any to add and not at max.
+                        // Experience is never routed; it always uses the existing stored-XP path.
                         if (loot.experience() > 0 && spawner.getSpawnerExp() < spawner.getMaxStoredExp()) {
                             long currentExp = spawner.getSpawnerExp();
                             long maxExp = spawner.getMaxStoredExp();
@@ -127,34 +139,17 @@ public class SpawnerLootGenerator {
                             }
                         }
 
-                        // Re-check max slots as it could have changed
-                        maxSlots.set(spawner.getMaxSpawnerLootSlots());
-                        usedSlots.set(spawner.getVirtualInventory().getUsedSlots());
-
-                        // Process items if there are any to add and inventory isn't completely full
-                        if (!loot.items().isEmpty() && usedSlots.get() < maxSlots.get()) {
-                            List<ItemStack> itemsToAdd = new ArrayList<>(loot.items());
-
-                            // Get exact calculation of slots with the new items
-                            int totalRequiredSlots = calculateRequiredSlots(itemsToAdd, spawner.getVirtualInventory());
-
-                            // If we'll exceed the limit, limit the items we're adding
-                            if (totalRequiredSlots > maxSlots.get()) {
-                                itemsToAdd = limitItemsToAvailableSlots(itemsToAdd, spawner);
-                            }
-
-                            if (!itemsToAdd.isEmpty()) {
-                                spawner.addItemsAndUpdateSellValue(itemsToAdd);
-                                changed = true;
-                            }
+                        // Items: route externally first, then store the unconsumed remainder internally.
+                        if (routeAndStoreGeneratedItems(spawner, loot.items())) {
+                            changed = true;
                         }
 
                         if (!changed) {
                             return;
                         }
 
-                        // Update spawn time only after successful loot addition
-                        // This prevents skipped spawns when the lock fails
+                        // Update spawn time only after successful handling (external consumption or
+                        // internal insertion or XP). This prevents skipped spawns when the lock fails.
                         // Must acquire dataLock to safely update lastSpawnTime
                         boolean updateDataLockAcquired = spawner.getDataLock().tryLock();
                         if (updateDataLockAcquired) {
@@ -371,6 +366,76 @@ public class SpawnerLootGenerator {
     }
 
     /**
+     * Removal / stale-instance guard shared by both loot-commit paths.
+     *
+     * @return true when the batch must NOT be routed or committed because the spawner has been
+     *         claimed for removal, or the exact instance is no longer indexed by its ID and location.
+     */
+    private boolean isStaleOrRemoving(SpawnerData spawner) {
+        if (spawner == null || spawner.isRemovalPending()) {
+            return true;
+        }
+        if (spawnerManager.getSpawnerById(spawner.getSpawnerId()) != spawner) {
+            return true;
+        }
+        Location loc = spawner.getSpawnerLocation();
+        if (loc == null) {
+            return true;
+        }
+        return spawnerManager.getSpawnerByLocation(loc) != spawner;
+    }
+
+    /**
+     * Shared commit helper used by BOTH loot paths (normal and pre-generated).
+     * Routes newly generated items through registered output routers (if any), then inserts the
+     * unconsumed remainder into internal virtual storage using the existing slot-capacity limiting.
+     *
+     * <p>Never routes experience. Never mutates the supplied {@code generatedItems} list. Must be
+     * called only in the safe location-thread commit phase while holding the loot generation lock.
+     *
+     * @return true if any external consumption or internal insertion occurred
+     */
+    private boolean routeAndStoreGeneratedItems(SpawnerData spawner, List<ItemStack> generatedItems) {
+        if (generatedItems == null || generatedItems.isEmpty()) {
+            return false;
+        }
+
+        boolean changed = false;
+        List<ItemStack> remainder = generatedItems;
+
+        if (outputRoutingService != null && outputRoutingService.hasActiveRouters()) {
+            SpawnerOutputRoutingService.RoutingOutcome outcome =
+                    outputRoutingService.route(spawner, generatedItems);
+            remainder = outcome.remaining();
+            if (outcome.consumedAny()) {
+                changed = true;
+            }
+        }
+
+        // Apply existing internal slot-capacity limiting only to the unconsumed remainder.
+        if (remainder != null && !remainder.isEmpty()) {
+            int usedSlots = spawner.getVirtualInventory().getUsedSlots();
+            int maxSlots = spawner.getMaxSpawnerLootSlots();
+
+            if (usedSlots < maxSlots) {
+                List<ItemStack> itemsToAdd = new ArrayList<>(remainder);
+
+                int totalRequiredSlots = calculateRequiredSlots(itemsToAdd, spawner.getVirtualInventory());
+                if (totalRequiredSlots > maxSlots) {
+                    itemsToAdd = limitItemsToAvailableSlots(itemsToAdd, spawner);
+                }
+
+                if (!itemsToAdd.isEmpty()) {
+                    spawner.addItemsAndUpdateSellValue(itemsToAdd);
+                    changed = true;
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    /**
      * Handle GUI updates after loot has been added to VirtualInventory.
      *
      * CRITICAL: This method is called while lootGenerationLock is held, which ensures:
@@ -437,6 +502,7 @@ public class SpawnerLootGenerator {
             final int minMobs;
             final int maxMobs;
             final boolean itemStorageFull;
+            final boolean routersActive = outputRoutingService != null && outputRoutingService.hasActiveRouters();
 
             try {
                 int usedSlots = spawner.getVirtualInventory().getUsedSlots();
@@ -444,7 +510,8 @@ public class SpawnerLootGenerator {
                 itemStorageFull = usedSlots >= maxSlots;
                 boolean atCapacity = itemStorageFull && spawner.getSpawnerExp() >= spawner.getMaxStoredExp();
 
-                if (atCapacity) {
+                // Only skip entirely when both storages are full AND no router could consume items.
+                if (atCapacity && !routersActive) {
                     callback.onLootGenerated(Collections.emptyList(), 0);
                     return;
                 }
@@ -457,7 +524,8 @@ public class SpawnerLootGenerator {
 
             Scheduler.runTaskAsync(() -> {
                 LootResult loot;
-                if (itemStorageFull) {
+                // The experience-only shortcut only remains active when no router could consume items.
+                if (itemStorageFull && !routersActive) {
                     loot = generateExperienceOnlyLoot(minMobs, maxMobs, spawner);
                 } else {
                     loot = generateLoot(minMobs, maxMobs, spawner);
@@ -483,17 +551,6 @@ public class SpawnerLootGenerator {
     /**
      * Adds pre-generated loot to spawner instantly when timer expires.
      *
-     * <p>This method:
-     * <ul>
-     *   <li>Validates pre-generated loot is not empty</li>
-     *   <li>Rechecks capacity (may have changed since pre-generation)</li>
-     *   <li>Adds items and experience to spawner</li>
-     *   <li>Updates lastSpawnTime to maintain cycle timing</li>
-     *   <li>Triggers GUI updates and marks spawner for persistence</li>
-     * </ul>
-     *
-     * <p><b>Thread Safety:</b> All Bukkit API calls are scheduled on main thread via Scheduler.runLocationTask
-     *
      * @param spawner The spawner to add loot to
      * @param items Pre-generated items list
      * @param experience Pre-generated experience amount
@@ -505,6 +562,11 @@ public class SpawnerLootGenerator {
     /**
      * Adds pre-generated loot to spawner with custom spawn time.
      * Used for early loot addition to prevent timer stutter.
+     *
+     * <p><b>Thread Safety:</b> Routing and all final state mutation run on the spawner's valid
+     * location execution context while holding the loot generation lock, so router execution and
+     * VirtualInventory writes never occur from an arbitrary async thread and never after the lock
+     * has been released.
      *
      * @param spawner The spawner to add loot to
      * @param items Pre-generated items list
@@ -527,6 +589,14 @@ public class SpawnerLootGenerator {
             }
 
             try {
+                // Removal / stale-instance safety before any routing or mutation.
+                if (isStaleOrRemoving(spawner)) {
+                    return;
+                }
+
+                boolean routersActive = outputRoutingService != null && outputRoutingService.hasActiveRouters();
+
+                // Capacity early-out: only skip when completely full AND no router could consume items.
                 try {
                     if (!spawner.getDataLock().tryLock(50, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                         return;
@@ -541,72 +611,56 @@ public class SpawnerLootGenerator {
                     int maxSlots = spawner.getMaxSpawnerLootSlots();
                     boolean isCompletelyFull = usedSlots >= maxSlots && spawner.getSpawnerExp() >= spawner.getMaxStoredExp();
 
-                    if (isCompletelyFull) {
+                    if (isCompletelyFull && !routersActive) {
                         return;
                     }
                 } finally {
                     spawner.getDataLock().unlock();
                 }
 
-                Scheduler.runTaskAsync(() -> {
-                    boolean changed = false;
+                // Commit phase (location thread, loot lock held): XP path, then route + store items.
+                boolean changed = false;
 
-                    if (experience > 0 && spawner.getSpawnerExp() < spawner.getMaxStoredExp()) {
-                        long currentExp = spawner.getSpawnerExp();
-                        long maxExp = spawner.getMaxStoredExp();
-                        long newExpLong = (long) currentExp + experience;
-                        long newExp = Math.min(newExpLong, maxExp);
+                if (experience > 0 && spawner.getSpawnerExp() < spawner.getMaxStoredExp()) {
+                    long currentExp = spawner.getSpawnerExp();
+                    long maxExp = spawner.getMaxStoredExp();
+                    long newExpLong = (long) currentExp + experience;
+                    long newExp = Math.min(newExpLong, maxExp);
 
-                        if (newExp != currentExp) {
-                            spawner.setSpawnerExp(newExp);
-                            changed = true;
+                    if (newExp != currentExp) {
+                        spawner.setSpawnerExp(newExp);
+                        changed = true;
+                    }
+                }
+
+                if (items != null && !items.isEmpty()) {
+                    List<ItemStack> validItems = new ArrayList<>();
+                    for (ItemStack item : items) {
+                        if (item != null && item.getType() != Material.AIR) {
+                            validItems.add(item.clone());
                         }
                     }
 
-                    if (items != null && !items.isEmpty()) {
-                        List<ItemStack> validItems = new ArrayList<>();
-                        for (ItemStack item : items) {
-                            if (item != null && item.getType() != Material.AIR) {
-                                validItems.add(item.clone());
-                            }
-                        }
-
-                        if (!validItems.isEmpty()) {
-                            int usedSlots = spawner.getVirtualInventory().getUsedSlots();
-                            int maxSlots = spawner.getMaxSpawnerLootSlots();
-
-                            if (usedSlots < maxSlots) {
-                                List<ItemStack> itemsToAdd = validItems;
-
-                                int totalRequiredSlots = calculateRequiredSlots(itemsToAdd, spawner.getVirtualInventory());
-                                if (totalRequiredSlots > maxSlots) {
-                                    itemsToAdd = limitItemsToAvailableSlots(itemsToAdd, spawner);
-                                }
-
-                                if (!itemsToAdd.isEmpty()) {
-                                    spawner.addItemsAndUpdateSellValue(itemsToAdd);
-                                    changed = true;
-                                }
-                            }
-                        }
+                    if (routeAndStoreGeneratedItems(spawner, validItems)) {
+                        changed = true;
                     }
+                }
 
-                    if (!changed) {
-                        return;
+                if (!changed) {
+                    return;
+                }
+
+                if (spawner.getDataLock().tryLock()) {
+                    try {
+                        spawner.setLastSpawnTime(spawnTime);
+                    } finally {
+                        spawner.getDataLock().unlock();
                     }
+                }
 
-                    if (spawner.getDataLock().tryLock()) {
-                        try {
-                            spawner.setLastSpawnTime(spawnTime);
-                        } finally {
-                            spawner.getDataLock().unlock();
-                        }
-                    }
-
-                    spawner.updateCapacityStatus();
-                    handleGuiUpdates(spawner);
-                    spawnerManager.markSpawnerModified(spawner.getSpawnerId());
-                });
+                spawner.updateCapacityStatus();
+                handleGuiUpdates(spawner);
+                spawnerManager.markSpawnerModified(spawner.getSpawnerId());
             } finally {
                 spawner.getLootGenerationLock().unlock();
             }
