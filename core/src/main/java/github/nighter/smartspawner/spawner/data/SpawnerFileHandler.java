@@ -86,10 +86,14 @@ public class SpawnerFileHandler implements SpawnerStorage {
 
     @Override
     public void markSpawnerModified(String spawnerId) {
-        if (spawnerId != null) {
-            dirtySpawners.add(spawnerId);
-            deletedSpawners.remove(spawnerId);
+        if (spawnerId == null) {
+            return;
         }
+        // A queued deletion is a tombstone and must win over stale update requests.
+        if (deletedSpawners.contains(spawnerId)) {
+            return;
+        }
+        dirtySpawners.add(spawnerId);
     }
 
     @Override
