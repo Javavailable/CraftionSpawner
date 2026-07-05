@@ -618,7 +618,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
         }
 
         // Use a JSON-like array format that's easy to parse
-        // Format: [\"item1:count\",\"item2;damage:count:count\",...]
+        // Format: ["item1:count","item2;damage:count:count",...]
         StringBuilder sb = new StringBuilder();
         sb.append("[");
         for (int i = 0; i < serializedItems.size(); i++) {
@@ -634,7 +634,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
         if (jsonData == null || jsonData.isEmpty()) return;
 
         // Parse our simple JSON array format
-        // Format: [\"item1:count\",\"item2;damage:count:count\",...]
+        // Format: ["item1:count","item2;damage:count:count",...]
         if (!jsonData.startsWith("[") || !jsonData.endsWith("]")) {
             logger.warning("Invalid inventory JSON format: " + jsonData);
             return;
@@ -655,7 +655,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
                 continue;
             }
 
-            if (c == '\\\\') {
+            if (c == '\\') {
                 escaped = true;
                 continue;
             }
@@ -995,7 +995,7 @@ public class SpawnerDatabaseHandler implements SpawnerStorage {
 
         long total = 0;
         // Simple regex to find numbers after colons (item counts)
-        // Format: [\"ITEM:count\",\"ITEM:count\",...]
+        // Format: ["ITEM:count","ITEM:count",...]
         try {
             String[] parts = inventoryData.split(":");
             for (int i = 1; i < parts.length; i++) {
