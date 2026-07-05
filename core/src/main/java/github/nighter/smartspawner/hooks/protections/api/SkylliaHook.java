@@ -93,9 +93,15 @@ public class SkylliaHook {
     }
 
     public void shutdown() {
+        enabled = false;
         if (cleanupListener != null) {
             cleanupListener.shutdown();
+            org.bukkit.event.HandlerList.unregisterAll(cleanupListener);
+            cleanupListener = null;
         }
+        listenerRegistered = false;
+        skylliaPlugin = null;
+        permissions = null;
     }
 
     public ProtectionDecision canInteract(Player player, Location location, SpawnerAction action) {

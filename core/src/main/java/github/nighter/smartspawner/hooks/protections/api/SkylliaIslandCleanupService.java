@@ -29,13 +29,12 @@ public class SkylliaIslandCleanupService {
     public void cleanupIsland(Island island) {
         SpawnerManager spawnerManager = plugin.getSpawnerManager();
         List<SpawnerData> allSpawners = spawnerManager.getAllSpawners();
-        Set<String> spawnersToRemove = new HashSet<>();
         Set<SpawnerData> matchedSpawners = new HashSet<>();
 
         int matchedCount = 0;
-        int failedCount = 0;
+        int matchFailedCount = 0;
 
-        // 1. Build a stable matched-spawner snapshot.
+        // A. Match candidates
         for (SpawnerData spawner : allSpawners) {
             Location location = spawner.getSpawnerLocation();
             if (location == null || location.getWorld() == null) {
@@ -48,69 +47,154 @@ public class SkylliaIslandCleanupService {
                 }
 
                 if (island.isInside(location)) {
-                    spawnersToRemove.add(spawner.getSpawnerId());
                     matchedSpawners.add(spawner);
                     matchedCount++;
-
-                    // 2. Set each matched spawner stop flag.
-                    spawner.getSpawnerStop().set(true);
                 }
             } catch (Exception e) {
-                failedCount++;
+                matchFailedCount++;
                 plugin.getLogger().warning("Failed to match spawner " + spawner.getSpawnerId() + " during island deletion: " + e.getMessage());
             }
         }
 
-        if (spawnersToRemove.isEmpty()) {
+        if (matchedSpawners.isEmpty()) {
             return;
         }
 
-        // 3. Atomically detach matched IDs from SpawnerManager indexes.
-        spawnerManager.removeSpawnersDataOnly(spawnersToRemove);
+        processSpawners(island.getId(), matchedSpawners, 0, matchedCount, 0, 0);
+    }
 
-        // 4. After detachment, schedule GUI, hologram and hopper cleanup.
-        for (SpawnerData spawner : matchedSpawners) {
-            Location location = spawner.getSpawnerLocation();
+    private void processSpawners(java.util.UUID islandId, Set<SpawnerData> candidates, int attempt, int totalMatched, int totalDetached, int totalSideEffectFailures) {
+        SpawnerManager spawnerManager = plugin.getSpawnerManager();
+        Set<SpawnerData> deferred = new HashSet<>();
+        Set<SpawnerData> detachedSpawners = new HashSet<>();
+        Set<String> detachedIds = new HashSet<>();
 
-            if (plugin.getRangeChecker() != null) {
-                plugin.getRangeChecker().deactivateSpawner(spawner);
+        // B. Safely claim/detach candidates
+        for (SpawnerData spawner : candidates) {
+            Location loc = spawner.getSpawnerLocation();
+
+            java.util.concurrent.locks.ReentrantLock lock = plugin.getSpawnerLocationLockManager().getLock(loc);
+            boolean acquired = lock.tryLock();
+
+            if (!acquired) {
+                deferred.add(spawner);
+                continue;
             }
 
-            plugin.getSpawnerLocationLockManager().removeLock(location);
+            try {
+                // Verify still present
+                SpawnerData byId = spawnerManager.getSpawnerById(spawner.getSpawnerId());
+                SpawnerData byLoc = spawnerManager.getSpawnerByLocation(loc);
 
-            Scheduler.runLocationTask(location, spawner::removeHologram);
+                if (byId != spawner || byLoc != spawner) {
+                    continue; // Disappeared or replaced
+                }
 
-            int chunkX = location.getBlockX() >> 4;
-            int chunkZ = location.getBlockZ() >> 4;
-            if (location.getWorld().isChunkLoaded(chunkX, chunkZ)) {
-                Scheduler.runLocationTask(location, () -> {
-                    if (plugin.getHopperService() != null) {
-                        plugin.getHopperService().getTracker().removeBelowSpawner(location.getBlock()); // This requires block lookup
-                    }
-                });
+                if (spawner.isSelling()) {
+                    deferred.add(spawner);
+                    continue;
+                }
+
+                // Safe to detach
+                spawner.getSpawnerStop().set(true);
+
+                Set<String> removed = spawnerManager.removeSpawnersDataOnly(Set.of(spawner.getSpawnerId()));
+                if (removed.contains(spawner.getSpawnerId())) {
+                    detachedSpawners.add(spawner);
+                    detachedIds.add(spawner.getSpawnerId());
+                }
+            } finally {
+                lock.unlock();
+                plugin.getSpawnerLocationLockManager().removeLock(loc);
             }
-
-            closeRelatedInventories(spawner);
         }
 
-        // 5. Mark all IDs deleted in storage.
-        for (String id : spawnersToRemove) {
+        // C. Mark successfully detached IDs deleted
+        for (String id : detachedIds) {
             spawnerManager.markSpawnerDeleted(id);
         }
 
-        // 6. Call spawnerStorage.flushChanges() exactly once.
-        plugin.getSpawnerStorage().flushChanges();
+        // D. Flush deletion queue once
+        if (!detachedIds.isEmpty()) {
+            plugin.getSpawnerStorage().flushChanges();
+        }
 
-        plugin.getLogger().info(String.format("Skyllia island cleanup queued for %s: matched %d, detached %d, failed %d", island.getId(), matchedCount, spawnersToRemove.size(), failedCount));
+        // E. Schedule best-effort GUI/hologram/hopper cleanup
+        int currentSideEffectFailures = 0;
+        for (SpawnerData spawner : detachedSpawners) {
+            try {
+                Location location = spawner.getSpawnerLocation();
+
+                if (plugin.getRangeChecker() != null) {
+                    try {
+                        plugin.getRangeChecker().deactivateSpawner(spawner);
+                    } catch (Exception ex) {
+                        currentSideEffectFailures++;
+                        plugin.getLogger().warning("Failed range cleanup for spawner " + spawner.getSpawnerId() + ": " + ex.getMessage());
+                    }
+                }
+
+                Scheduler.runLocationTask(location, () -> {
+                    try {
+                        int chunkX = location.getBlockX() >> 4;
+                        int chunkZ = location.getBlockZ() >> 4;
+                        if (!location.getWorld().isChunkLoaded(chunkX, chunkZ)) {
+                            return;
+                        }
+
+                        spawner.removeHologram();
+
+                        if (plugin.getHopperService() != null) {
+                            plugin.getHopperService().getTracker().removeBelowSpawner(location.getBlock());
+                        }
+                    } catch (Exception ex) {
+                        plugin.getLogger().warning("Failed location-thread cleanup for spawner " + spawner.getSpawnerId() + ": " + ex.getMessage());
+                    }
+                });
+
+                closeRelatedInventories(spawner);
+            } catch (Exception e) {
+                currentSideEffectFailures++;
+                plugin.getLogger().warning("Failed side-effect cleanup for spawner " + spawner.getSpawnerId() + ": " + e.getMessage());
+            }
+        }
+
+        int newTotalDetached = totalDetached + detachedSpawners.size();
+        int newTotalSideEffectFailures = totalSideEffectFailures + currentSideEffectFailures;
+
+        if (!deferred.isEmpty() && attempt < 10) {
+            Scheduler.runTaskLaterAsync(() -> {
+                processSpawners(islandId, deferred, attempt + 1, totalMatched, newTotalDetached, newTotalSideEffectFailures);
+            }, 20L);
+        } else {
+            if (!deferred.isEmpty()) {
+                for (SpawnerData s : deferred) {
+                    plugin.getLogger().warning("Failed to detach spawner " + s.getSpawnerId() + " after retries (locked or selling).");
+                }
+            }
+            // Final log
+            plugin.getLogger().info(String.format("Skyllia island cleanup queued for %s: matched %d, detached %d, deferred %d, side-effect failures %d",
+                islandId, totalMatched, newTotalDetached, deferred.size(), newTotalSideEffectFailures));
+        }
     }
 
     private void closeRelatedInventories(SpawnerData spawner) {
         Scheduler.runTask(() -> {
-            plugin.getSpawnerGuiViewManager().closeAllViewersInventory(spawner);
+            try {
+                plugin.getSpawnerGuiViewManager().closeAllViewersInventory(spawner);
 
-            String spawnerId = spawner.getSpawnerId();
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                Scheduler.runEntityTask(player, () -> closeManagementInventory(player, spawnerId));
+                String spawnerId = spawner.getSpawnerId();
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    Scheduler.runEntityTask(player, () -> {
+                        try {
+                            closeManagementInventory(player, spawnerId);
+                        } catch (Exception e) {
+                            plugin.getLogger().warning("Failed closing inventory for player " + player.getName() + ": " + e.getMessage());
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("Failed closing related inventories for " + spawner.getSpawnerId() + ": " + e.getMessage());
             }
         });
     }

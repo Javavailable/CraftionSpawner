@@ -34,6 +34,10 @@ public class SkylliaIslandCleanupListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onIslandDelete(SkyblockDeleteEvent event) {
+        if (shuttingDown) {
+            return;
+        }
+
         Island island = event.getIsland();
         if (island == null) {
             return;
@@ -45,18 +49,19 @@ public class SkylliaIslandCleanupListener implements Listener {
             return;
         }
 
-        // SkyblockDeleteEvent is pre-delete and asynchronous. We must wait until Skyllia 
+        // SkyblockDeleteEvent is pre-delete and asynchronous. We must wait until Skyllia
         // successfully marks it disabled in its database and memory.
         plugin.getLogger().info("Received SkyblockDeleteEvent for island " + islandId + ". Scheduling disable confirmation...");
 
         AtomicInteger retries = new AtomicInteger(0);
+        AtomicInteger exceptionCount = new AtomicInteger(0);
         final int MAX_RETRIES = 10;
         final long RETRY_DELAY_TICKS = 20L;
 
-        scheduleConfirmationTask(island, islandId, retries, MAX_RETRIES, RETRY_DELAY_TICKS);
+        scheduleConfirmationTask(island, islandId, retries, exceptionCount, MAX_RETRIES, RETRY_DELAY_TICKS);
     }
 
-    private void scheduleConfirmationTask(Island island, UUID islandId, AtomicInteger retries, int maxRetries, long delayTicks) {
+    private void scheduleConfirmationTask(Island island, UUID islandId, AtomicInteger retries, AtomicInteger exceptionCount, int maxRetries, long delayTicks) {
         Scheduler.runTaskLaterAsync(() -> {
             // If plugin disables or shutting down, gracefully abort
             if (shuttingDown || !plugin.isEnabled() || !hook.isEnabled() || hook.getSkylliaPlugin() == null || !hook.getSkylliaPlugin().isEnabled()) {
@@ -68,7 +73,9 @@ public class SkylliaIslandCleanupListener implements Listener {
             try {
                 isDisable = island.isDisable();
             } catch (Exception e) {
-                plugin.getLogger().warning("Exception while checking Skyllia island disable state for " + islandId + ": " + e.getMessage());
+                if (exceptionCount.getAndIncrement() == 0) {
+                    plugin.getLogger().warning("Exception while checking Skyllia island disable state for " + islandId + " (will suppress further logs): " + e.getMessage());
+                }
             }
 
             if (isDisable) {
@@ -82,7 +89,7 @@ public class SkylliaIslandCleanupListener implements Listener {
             } else {
                 int attempt = retries.incrementAndGet();
                 if (attempt < maxRetries) {
-                    scheduleConfirmationTask(island, islandId, retries, maxRetries, delayTicks);
+                    scheduleConfirmationTask(island, islandId, retries, exceptionCount, maxRetries, delayTicks);
                 } else {
                     plugin.getLogger().warning("Aborted cleanup for island " + islandId + ". Deletion was never confirmed after " + maxRetries + " attempts.");
                     pendingDeletions.remove(islandId);

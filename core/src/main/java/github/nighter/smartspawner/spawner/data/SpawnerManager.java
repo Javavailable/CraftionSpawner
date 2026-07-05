@@ -177,10 +177,12 @@ public class SpawnerManager {
      *
      * @param spawnerIds Set of spawner IDs to completely detach from active indexes.
      */
-    public void removeSpawnersDataOnly(Set<String> spawnerIds) {
+    public Set<String> removeSpawnersDataOnly(Set<String> spawnerIds) {
+        Set<String> removedIds = new HashSet<>();
         for (String id : spawnerIds) {
             SpawnerData spawner = spawners.remove(id);
             if (spawner != null) {
+                removedIds.add(id);
                 Location loc = spawner.getSpawnerLocation();
                 if (loc != null && loc.getWorld() != null) {
                     locationIndex.remove(new LocationKey(loc));
@@ -196,6 +198,7 @@ public class SpawnerManager {
                 }
             }
         }
+        return removedIds;
     }
 
     public void initializeWithoutLoading() {
