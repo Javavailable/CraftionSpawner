@@ -165,12 +165,6 @@ public class SpawnerClickManager implements Listener {
             return;
         }
 
-        // Check permission on claimed land
-        if (!CheckOpenMenu.CanPlayerOpenMenu(player, block.getLocation())) {
-            messageService.sendMessage(player, "spawner_protected");
-            return;
-        }
-
         // Handle spawn egg usage
         if (isSpawnEgg(itemType)) {
             spawnEggHandler.handleSpawnEggUse(player, (CreatureSpawner) block.getState(false), spawner, heldItem);
@@ -180,6 +174,12 @@ public class SpawnerClickManager implements Listener {
         // Handle spawner stacking
         if (itemType == Material.SPAWNER) {
             spawnerStackHandler.handleSpawnerStacking(player, block, spawner, heldItem);
+            return;
+        }
+
+        // Check permission on claimed land before opening menu
+        if (!CheckOpenMenu.CanPlayerOpenMenu(player, block.getLocation())) {
+            messageService.sendMessage(player, "spawner_protected");
             return;
         }
 

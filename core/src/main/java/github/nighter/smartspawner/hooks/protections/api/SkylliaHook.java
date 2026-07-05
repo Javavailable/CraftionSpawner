@@ -42,6 +42,7 @@ public class SkylliaHook {
 
     private final SmartSpawner plugin;
     private volatile boolean enabled = false;
+    private volatile Plugin skylliaPlugin;
     private volatile PermissionSnapshot permissions;
     private final AtomicLong lastWarningTime = new AtomicLong(0);
 
@@ -52,19 +53,22 @@ public class SkylliaHook {
 
     private void initialize() {
         try {
-            Plugin skylliaPlugin = plugin.getServer().getPluginManager().getPlugin("Skyllia");
-            if (skylliaPlugin == null || !skylliaPlugin.isEnabled()) {
+            Plugin resolvedPlugin = plugin.getServer().getPluginManager().getPlugin("Skyllia");
+            if (resolvedPlugin == null || !resolvedPlugin.isEnabled()) {
                 enabled = false;
+                skylliaPlugin = null;
                 permissions = null;
                 return;
             }
 
+            skylliaPlugin = resolvedPlugin;
             permissions = new PermissionSnapshot();
             enabled = true;
             plugin.getLogger().info("Skyllia integration initialized successfully!");
         } catch (NoClassDefFoundError | Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to initialize Skyllia integration: " + e.getMessage());
             enabled = false;
+            skylliaPlugin = null;
             permissions = null;
         }
     }
@@ -78,7 +82,12 @@ public class SkylliaHook {
     }
 
     public ProtectionDecision canInteract(Player player, Location location, SpawnerAction action) {
-        if (!enabled || location == null || location.getWorld() == null) {
+        Plugin resolvedPlugin = this.skylliaPlugin;
+        if (!enabled || resolvedPlugin == null || !resolvedPlugin.isEnabled()) {
+            return ProtectionDecision.ABSTAIN;
+        }
+
+        if (location == null || location.getWorld() == null) {
             return ProtectionDecision.ABSTAIN;
         }
 
