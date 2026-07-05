@@ -151,13 +151,6 @@ public class SpawnerManager {
         return worldIndex.get(worldName);
     }
 
-    /**
-     * Removes all spawners belonging to a world from in-memory indexes.
-     * Used when a world unloads so runtime memory only contains active worlds.
-     *
-     * @param worldName world being unloaded
-     * @return IDs of removed spawners for deferred reloading
-     */
     public Set<String> unloadSpawnersInWorld(String worldName) {
         Set<SpawnerData> worldSpawners = worldIndex.get(worldName);
         if (worldSpawners == null || worldSpawners.isEmpty()) {
@@ -171,11 +164,38 @@ public class SpawnerManager {
             spawner.removeHologram();
             removedSpawnerIds.add(spawner.getSpawnerId());
             spawners.remove(spawner.getSpawnerId());
-            locationIndex.entrySet().removeIf(entry -> entry.getValue() == spawner);
+            locationIndex.remove(new LocationKey(spawner.getSpawnerLocation()));
         }
 
         worldIndex.remove(worldName);
         return removedSpawnerIds;
+    }
+
+    /**
+     * Data-only cleanup path for batch removals, safely removing memory indexes.
+     * Does NOT perform physical block modifications or load chunks.
+     *
+     * @param spawnerIds Set of spawner IDs to completely detach from active indexes.
+     */
+    public synchronized void removeSpawnersDataOnly(Set<String> spawnerIds) {
+        for (String id : spawnerIds) {
+            SpawnerData spawner = spawners.remove(id);
+            if (spawner != null) {
+                Location loc = spawner.getSpawnerLocation();
+                if (loc != null && loc.getWorld() != null) {
+                    locationIndex.remove(new LocationKey(loc));
+
+                    String worldName = loc.getWorld().getName();
+                    Set<SpawnerData> worldSpawners = worldIndex.get(worldName);
+                    if (worldSpawners != null) {
+                        worldSpawners.remove(spawner);
+                        if (worldSpawners.isEmpty()) {
+                            worldIndex.remove(worldName);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public void initializeWithoutLoading() {

@@ -122,3 +122,14 @@ These are future planned packages (not implemented in S0):
 - **API Failure Behavior:** Exception before valid island: ABSTAIN. Exception after island confirmed: DENY. Missing permission node: DENY with rate-limited warning.
 - **Synchronous Lookup Limitation:** `SkylliaAPI.getIslandByChunk` calls `getIslandByRegion` which performs a synchronous JDBC database query (`plugin.getInterneAPI().getIslandQuery().getIslandDataQuery().getIslandByRegion`) on cold cache misses. This limitation is noted and event cancellations will rely on Skyllia natively cancelling `BlockPlaceEvent` and `PlayerInteractEvent` where applicable, which allows the plugin to ignore them via `ignoreCancelled = true`.
 - **Deferred Tasks:** S2B cleanup remains deferred.
+
+## S2B Skyllia Island Cleanup
+
+- **Async Handling:** `SkyblockDeleteEvent` is asynchronous and pre-delete. The cleanup service schedules a delayed Bukkit/Folia async task to wait for the actual `isDisable()` state, retrying up to 10 times at 20-tick intervals.
+- **Deletion Confirmation:** Deletion is only processed if `isDisable()` returns true. If unconfirmed, no cleanup executes.
+- **Deduplication:** Jobs are deduplicated via a `pendingDeletions` ConcurrentHashMap.newKeySet().
+- **Exact Boundary Matching:** Iterates over a snapshot of spawners, calling `island.isInside(spawnerLocation)` to capture only the targeted spawners.
+- **Data-Only Cleanup:** Safe data-only batch deletion is utilized. `spawnerManager.removeSpawnersDataOnly` safely strips references without modifying physical blocks or forcing unloaded chunks into memory.
+- **Storage Modes:** Supports the active persistent storage method (YAML/SQLite/MariaDB) seamlessly via `spawnerManager.markSpawnerDeleted`.
+- **Failure/Retry Behavior:** If an individual spawner fails, it proceeds to the next.
+- **Inspected Skyllia version:** `3.0-158`, exact commit `daf64687d6cac9c252227c60cd402d9f6f132287`.

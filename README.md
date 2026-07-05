@@ -17,14 +17,27 @@ cd CraftionSpawner
 ```
 
 The compiled shaded JAR will be available in:
-`core/build/libs/CraftionSpawner-1.7.0.1-craftion.3.jar`
+`core/build/libs/CraftionSpawner-1.7.0.1-craftion.4.jar`
 
-## API
+## API Usage
 
-**Artifact Coordinate:**
-`io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.3`
+```kotlin
+dependencies {
+    compileOnly("io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.4")
+}
+```
 
-*Note: Java packages and public API class names remain upstream-compatible for now.*
+## Changes
+
+- [x] Initial fork structure and cleanup
+- [x] Adopt baseline reproducible build
+- [x] Apply project and artifact identity (`io.github.javavailable:craftionspawner-*`)
+- [x] Add S1A: Apply CraftionSpawner project identity
+- [x] Add S1B: Apply CraftionSpawner runtime identity
+- [x] Add S2A: Add Skyllia access protection integration
+- [x] Add S2B: Clean CraftionSpawner data when a Skyllia island is deleted
+- [ ] Live testing of S1/S2 features pending
+- [ ] More features coming soon...
 
 ## Identity & Migration
 
@@ -43,7 +56,7 @@ The compiled shaded JAR will be available in:
 - **Bypass Permission:** Admins can bypass Skyllia checks with `smartspawner.bypass.skyllia`.
 - **Absent Skyllia:** If Skyllia is absent or disabled, the plugin leaves existing behavior unchanged.
 - **Non-island Locations:** If the spawner location is outside any Skyllia island, the integration will abstain from interfering.
-- **Island Deletion Cleanup:** Island deletion spawner cleanup remains deferred to S2B.
+- **Island Deletion Cleanup:** When a Skyllia island is successfully deleted, all associated spawners within the exact island boundary are cleanly removed from runtime data, memory indexes, and persistence (YAML/SQLite/MariaDB). This cleanup prevents phantom drops and closes any open management GUIs asynchronously without physical chunk loads.
 
 ## Upstream References & Attribution
 

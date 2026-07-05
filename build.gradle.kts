@@ -10,7 +10,7 @@ allprojects {
     apply(plugin = "maven-publish")
 
     group = "io.github.javavailable"
-    version = "1.7.0.1-craftion.3"
+    version = "1.7.0.1-craftion.4"
 
     repositories {
         mavenCentral()
