@@ -112,6 +112,10 @@ dependencies:
       load: BEFORE
       required: false
       join-classpath: true
+    Skyllia:
+      load: BEFORE
+      required: false
+      join-classpath: true
 
     # RPG/Skill Plugins
     AuraSkills:

@@ -8,6 +8,7 @@ import github.nighter.smartspawner.hooks.protections.api.Lands;
 import github.nighter.smartspawner.hooks.protections.api.PlotSquared;
 import github.nighter.smartspawner.hooks.protections.api.SuperiorSkyblock2;
 import github.nighter.smartspawner.hooks.rpg.AuraSkillsIntegration;
+import github.nighter.smartspawner.hooks.protections.api.SkylliaHook;
 import github.nighter.smartspawner.hooks.bedrock.FloodgateHook;
 import lombok.Getter;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
@@ -38,6 +39,7 @@ public class IntegrationManager {
     private boolean hasIridiumSkyblock = false;
     private boolean hasPlotSquared = false;
     private boolean hasResidence = false;
+    private boolean hasSkyllia = false;
 
     // Integration plugin flags
     private boolean hasAuraSkills = false;
@@ -46,6 +48,7 @@ public class IntegrationManager {
     // Integration instances
     public AuraSkillsIntegration auraSkillsIntegration;
     public FloodgateHook floodgateHook;
+    public SkylliaHook skylliaHook;
 
     public IntegrationManager(SmartSpawner plugin) {
         this.plugin = plugin;
@@ -165,6 +168,14 @@ public class IntegrationManager {
             return residence != null && residence.isEnabled();
         }, true);
 
+        hasSkyllia = checkPlugin("Skyllia", () -> {
+            Plugin skyllia = Bukkit.getPluginManager().getPlugin("Skyllia");
+            if (skyllia != null && skyllia.isEnabled()) {
+                this.skylliaHook = new SkylliaHook(plugin);
+                return this.skylliaHook.isEnabled();
+            }
+            return false;
+        }, false); // Initialization log handled by the hook
     }
 
     private void checkIntegrationPlugins() {
@@ -208,6 +219,9 @@ public class IntegrationManager {
     public void reload() {
         if (auraSkillsIntegration != null) {
             auraSkillsIntegration.reloadConfig();
+        }
+        if (skylliaHook != null) {
+            skylliaHook.reload();
         }
     }
 
