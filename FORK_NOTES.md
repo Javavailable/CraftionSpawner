@@ -30,6 +30,25 @@ This baseline explicitly makes no runtime, configuration, branding, API, databas
 `./gradlew clean build`
 *(Note: `./gradlew clean build` was attempted with JDK 25.0.3+9 and Gradle 9.6.0. The API module compiled, but the core build stopped because Gradle could not resolve `com.iridium:IridiumSkyblock:4.1.4` from the repositories configured by the upstream baseline. The root cause has not yet been classified as a removed artifact, changed coordinate, repository outage, or local/network issue. Tests were not run because the build failed before test execution. No shaded plugin JAR or SHA-256 was produced. Live Paper/Folia/Luminol testing remains pending.)*
 
+## S0.1 Build Resolution
+
+- **Previous Coordinate:** `com.iridium:IridiumSkyblock:4.1.4`
+- **Failure Observed During S0:** `com.iridium:IridiumSkyblock:4.1.4` could not be resolved from the repositories configured by the upstream baseline during S0.
+- **Replacement Coordinate:** `maven.modrinth:iridiumskyblock:4.1.4`
+- **Repository:** Modrinth Maven repository (`https://api.modrinth.com/maven`)
+- **Legitimacy:** IridiumSkyblock 4.1.4 is available through the official Modrinth project, and Modrinth’s Maven endpoint exposes it reliably.
+- **Java Integration:** The existing Iridium integration compiles without Java source changes against that artifact.
+- **JDK Version:** 25.0.3+9
+- **Gradle Version:** 9.6.0
+- **Successful Commands:**
+  - `./gradlew clean build --refresh-dependencies`
+  - `./gradlew clean build`
+- **Tests:** `test`, `api:test`, `core:test` tasks reported `NO-SOURCE` (no tests executed because there are no test sources).
+- **Generated Shaded JAR:** `core/build/libs/SmartSpawner-1.7.0.1.jar`
+- **Byte Size:** 1869972 bytes
+- **SHA-256:** 71d08a9b8843f5ae533e83cf39e66ef4cad07a77f5fd1f5e3e395c5a9ab9fc43
+- Live Paper/Folia/Luminol testing remains pending.
+
 ## Upstream Synchronization
 Recommended future workflow for syncing upstream updates:
 ```bash
