@@ -24,11 +24,13 @@ public class SkylliaIslandCleanupListener implements Listener {
     public SkylliaIslandCleanupListener(SmartSpawner plugin, SkylliaHook hook) {
         this.plugin = plugin;
         this.hook = hook;
-        this.cleanupService = new SkylliaIslandCleanupService(plugin);
+        this.cleanupService = new SkylliaIslandCleanupService(plugin, hook);
     }
 
     public void shutdown() {
         shuttingDown = true;
+        // Cancel any deferred spawner retries still scheduled inside the cleanup service.
+        cleanupService.shutdown();
         pendingDeletions.clear();
     }
 
@@ -79,11 +81,22 @@ public class SkylliaIslandCleanupListener implements Listener {
             }
 
             if (isDisable) {
-                // Confirmation successful, proceed with cleanup
+                // Confirmation successful, proceed with cleanup.
                 plugin.getLogger().info("Island " + islandId + " disable confirmed. Beginning spawner cleanup...");
+                // Keep the island-level dedup entry until the ENTIRE cleanup (including every
+                // deferred retry) has completed, been exhausted, or aborted. This prevents a
+                // duplicate delete event from starting a second overlapping cleanup while the
+                // first retry chain is still running.
                 try {
-                    cleanupService.cleanupIsland(island);
-                } finally {
+                    cleanupService.cleanupIsland(island)
+                            .whenComplete((result, error) -> {
+                                if (error != null) {
+                                    plugin.getLogger().warning("Skyllia island cleanup failed for " + islandId + ": " + error.getMessage());
+                                }
+                                pendingDeletions.remove(islandId);
+                            });
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Skyllia island cleanup could not start for " + islandId + ": " + e.getMessage());
                     pendingDeletions.remove(islandId);
                 }
             } else {
