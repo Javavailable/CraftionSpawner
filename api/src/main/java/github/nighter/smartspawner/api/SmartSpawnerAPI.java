@@ -4,6 +4,7 @@ import github.nighter.smartspawner.api.data.SpawnerDataDTO;
 import github.nighter.smartspawner.api.data.SpawnerDataModifier;
 import github.nighter.smartspawner.api.gui.GuiLayoutRegistry;
 import github.nighter.smartspawner.api.gui.SpawnerGuiLayoutProvider;
+import github.nighter.smartspawner.api.output.SpawnerOutputRouterRegistry;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
@@ -171,6 +172,18 @@ public interface SmartSpawnerAPI {
      * @return the layout registry instance
      */
     GuiLayoutRegistry getLayoutRegistry();
+
+    /**
+     * Gets the {@link SpawnerOutputRouterRegistry} used to register output routers.
+     *
+     * <p>Registered routers may consume part or all of a spawner's newly generated item output
+     * before the unconsumed remainder falls back to CraftionSpawner's internal virtual storage.
+     * With no routers registered, generation and storage behave exactly as before. Generated
+     * experience is never routed.
+     *
+     * @return the output router registry instance
+     */
+    SpawnerOutputRouterRegistry getOutputRouterRegistry();
 
     /**
      * Sets a provider to dynamically override GUI layouts on a per-spawner basis.

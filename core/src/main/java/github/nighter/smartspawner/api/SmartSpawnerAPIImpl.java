@@ -7,6 +7,7 @@ import github.nighter.smartspawner.api.gui.GuiLayoutRegistry;
 import github.nighter.smartspawner.api.gui.GuiLayoutRegistryImpl;
 import github.nighter.smartspawner.api.gui.SpawnerGuiLayoutProvider;
 import github.nighter.smartspawner.api.impl.SpawnerDataModifierImpl;
+import github.nighter.smartspawner.api.output.SpawnerOutputRouterRegistry;
 import github.nighter.smartspawner.spawner.data.SpawnerManager;
 import github.nighter.smartspawner.spawner.interactions.destroy.SpawnerRemovalService;
 import github.nighter.smartspawner.spawner.item.SpawnerItemFactory;
@@ -236,6 +237,11 @@ public class SmartSpawnerAPIImpl implements SmartSpawnerAPI {
     @Override
     public GuiLayoutRegistry getLayoutRegistry() {
         return guiLayoutRegistry;
+    }
+
+    @Override
+    public SpawnerOutputRouterRegistry getOutputRouterRegistry() {
+        return plugin.getOutputRouterRegistry();
     }
 
     @Override

@@ -133,3 +133,23 @@ These are future planned packages (not implemented in S0):
 - **Storage Modes:** Supports the active persistent storage method (YAML/SQLite/MariaDB) seamlessly via `spawnerManager.markSpawnerDeleted`.
 - **Failure/Retry Behavior:** If an individual spawner fails, it proceeds to the next.
 - **Inspected Skyllia version:** `3.0-158`, exact commit `daf64687d6cac9c252227c60cd402d9f6f132287`.
+
+## S3 Output Router API
+
+- **Version:** 1.7.0.1-craftion.5
+- **Type:** Additive, backward-compatible public API. No existing API signatures were removed or changed.
+- **New public package:** `github.nighter.smartspawner.api.output`
+  - `SpawnerOutputRouter` (functional interface: `SpawnerOutputResult route(SpawnerOutputContext)`)
+  - `SpawnerOutputContext` (immutable: read-only `SpawnerDataDTO` + deeply cloned, unmodifiable generated item list)
+  - `SpawnerOutputResult` (immutable: `consumeAll()`, `remaining(list)`, `passThrough(context)`; owns deep clones, exposes an unmodifiable list; `null` is never a valid decision)
+  - `SpawnerOutputRouterRegistry` (exposed via `SmartSpawnerAPI.getOutputRouterRegistry()`)
+- **Registration:** collision-safe Bukkit `NamespacedKey` + deterministic integer order + router. Lower order runs first; ties break by key string. Duplicate keys return `false` and never replace. `unregister` returns whether a router existed. `isRegistered`/`getRegisteredKeys` (immutable set) provided. Thread-safe; routing reads a stable immutable snapshot so registration changes cannot corrupt an active route.
+- **Item-only routing:** Only newly generated item output is routed. Generated experience always continues through the existing stored-XP path. Manual withdrawals, selling, drop-all, spawner breaking and already-stored contents are never routed.
+- **Internal fallback:** The unconsumed remainder falls through to CraftionSpawner internal virtual storage using the existing slot-capacity limiting.
+- **Capacity behavior:** With no routers, capacity behavior is unchanged. With at least one router, generated items are routed first even when internal storage is full; existing slot-capacity limiting applies only to the remainder. XP capacity is independent and unchanged. The "experience-only when item storage is full" shortcut applies only when no router could consume items.
+- **Generation-cycle correctness:** Full external consumption still counts as handled; `lastSpawnTime` advances once, nothing is inserted internally, and persistence/GUI state stay coherent. Partial routing inserts only the remainder; the batch is never duplicated or silently discarded.
+- **Removal/stale-instance safety:** Before routing/committing, the commit phase re-validates that the spawner is not `removalPending` and that the exact instance is still indexed by ID and location; otherwise no routers run and no items/XP/state/persistence changes occur. S2B tombstone and expected-instance protections are unchanged.
+- **Failure behavior (fail-open):** A router that throws, returns `null`, returns a null/AIR/non-positive item, introduces a new item type/meta, or inflates a per-type quantity is defensively ignored for that batch with a rate-limited (60s/key) warning; the full current remainder is preserved and other routers are unaffected.
+- **Threading:** Routing occurs only in the safe location-thread commit phase (never during async loot calculation). The pre-generated commit path was corrected (smallest scoped change) so routing and final state mutation run on the valid location execution context under the loot-generation lock, instead of a fire-and-forget async task that previously ran after the lock was released. No `join()`/`get()`/sleep; existing sale/removal mutual exclusion preserved.
+- **CraftionFarmer bridge:** deferred to S4 (strictly out of scope here).
+- **Testing:** Final integrated runtime testing is deferred to the release-candidate phase; no live testing was performed for this package.
