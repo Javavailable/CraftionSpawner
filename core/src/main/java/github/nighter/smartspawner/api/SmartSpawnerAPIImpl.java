@@ -14,6 +14,7 @@ import github.nighter.smartspawner.spawner.properties.SpawnerData;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import github.nighter.smartspawner.utils.NamespacedKeyUtil;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.EntityType;
@@ -103,7 +104,7 @@ public class SmartSpawnerAPIImpl implements SmartSpawnerAPI {
         }
 
         return meta.getPersistentDataContainer().has(
-                new org.bukkit.NamespacedKey(plugin, "vanilla_spawner"),
+                NamespacedKeyUtil.create("vanilla_spawner"),
                 org.bukkit.persistence.PersistentDataType.BOOLEAN);
     }
 
@@ -119,7 +120,7 @@ public class SmartSpawnerAPIImpl implements SmartSpawnerAPI {
         }
 
         return meta.getPersistentDataContainer().has(
-                new org.bukkit.NamespacedKey(plugin, "item_spawner_material"),
+                NamespacedKeyUtil.create("item_spawner_material"),
                 org.bukkit.persistence.PersistentDataType.STRING);
     }
 
@@ -154,7 +155,7 @@ public class SmartSpawnerAPIImpl implements SmartSpawnerAPI {
         }
 
         String materialName = meta.getPersistentDataContainer().get(
-                new NamespacedKey(plugin, "item_spawner_material"), PersistentDataType.STRING);
+                NamespacedKeyUtil.create("item_spawner_material"), PersistentDataType.STRING);
 
         if (materialName == null) {
             return null;

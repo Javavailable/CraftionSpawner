@@ -45,16 +45,14 @@ public class MainCommand {
 
     // Build the main command with all subcommands
     public LiteralCommandNode<CommandSourceStack> buildCommand() {
-        return buildCommandWithName("smartspawner");
+        return buildCommandWithName("craftionspawner");
     }
 
-    // Build the alias command
-    public LiteralCommandNode<CommandSourceStack> buildAliasCommand() {
-        return buildCommandWithName("spawner");
-    }
-
-    public LiteralCommandNode<CommandSourceStack> buildAliasCommand2() {
-        return buildCommandWithName("ss");
+    public List<LiteralCommandNode<CommandSourceStack>> buildAliases() {
+        List<String> aliases = List.of("cspawner", "spawner", "smartspawner", "ss");
+        return aliases.stream()
+                .map(this::buildCommandWithName)
+                .toList();
     }
 
     // Helper method to build command with any name

@@ -10,6 +10,7 @@ import github.nighter.smartspawner.spawner.properties.SpawnerData;
 import github.nighter.smartspawner.spawner.data.SpawnerManager;
 import github.nighter.smartspawner.Scheduler;
 import github.nighter.smartspawner.spawner.utils.SpawnerTypeChecker;
+import github.nighter.smartspawner.utils.NamespacedKeyUtil;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
@@ -90,9 +91,9 @@ public class SpawnerPlaceListener implements Listener {
             
             // Check if this is an item spawner
             if (storedEntityType == EntityType.ITEM && meta.getPersistentDataContainer().has(
-                    new NamespacedKey(plugin, "item_spawner_material"), PersistentDataType.STRING)) {
+                    NamespacedKeyUtil.create("item_spawner_material"), PersistentDataType.STRING)) {
                 String materialName = meta.getPersistentDataContainer().get(
-                        new NamespacedKey(plugin, "item_spawner_material"), PersistentDataType.STRING);
+                        NamespacedKeyUtil.create("item_spawner_material"), PersistentDataType.STRING);
                 if (materialName != null) {
                     try {
                         itemSpawnerMaterial = Material.valueOf(materialName);

@@ -17,19 +17,25 @@ cd CraftionSpawner
 ```
 
 The compiled shaded JAR will be available in:
-`core/build/libs/CraftionSpawner-1.7.0.1-craftion.1.jar`
+`core/build/libs/CraftionSpawner-1.7.0.1-craftion.2.jar`
 
 ## API
 
 **Artifact Coordinate:**
-`io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.1`
+`io.github.javavailable:craftionspawner-api:1.7.0.1-craftion.2`
 
 *Note: Java packages and public API class names remain upstream-compatible for now.*
 
-## Migration Status
+## Identity & Migration
 
-- Runtime plugin identity, commands, and permissions have not yet been migrated.
-- Live Paper/Folia/Luminol testing remains pending.
+- **Runtime Name:** CraftionSpawner
+- **Primary Command:** `/craftionspawner`
+- **Aliases:** `/cspawner`, `/spawner`, `/smartspawner`, `/ss`
+- **Permissions:** Remain `smartspawner.*`
+- **PDC Namespace:** Persisted data namespace remains `smartspawner`
+- **Legacy Migration:** The plugin automatically moves the legacy `plugins/SmartSpawner` folder to `plugins/CraftionSpawner` if the new folder does not exist or is empty.
+- **Upstream Services:** Upstream UpdateChecker and bStats are cleanly disabled.
+- **Testing:** Live Paper/Folia/Luminol testing remains pending.
 
 ## Upstream References & Attribution
 

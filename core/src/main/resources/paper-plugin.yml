@@ -1,17 +1,18 @@
-name: SmartSpawner
+name: CraftionSpawner
+provides: [ SmartSpawner ]
 version: '${version}'
 main: github.nighter.smartspawner.SmartSpawner
 api-version: '1.21'
-description: "A GUI-based spawner plugin that generates items and experience without spawning mobs"
-authors: [ https://github.com/OpenVdra/SmartSpawner ]
-website: "https://openvdra.github.io/SmartSpawner/"
+description: "CraftionSpawner spawner management and integration fork"
+authors: [ https://github.com/OpenVdra/SmartSpawner, Javavailable ]
+website: "https://github.com/Javavailable/CraftionSpawner"
 folia-supported: true
 
 # Load order - POSTWORLD means after all worlds are loaded
 load: POSTWORLD
 
 # Prefix for logging messages
-prefix: "SmartSpawner"
+prefix: "CraftionSpawner"
 
 # Dependencies
 dependencies:
@@ -128,12 +129,12 @@ dependencies:
 permissions:
   # Main command permission
   smartspawner.command.use:
-    description: "Allow access to SmartSpawner commands"
+    description: "Allow access to CraftionSpawner commands"
     default: op
 
   # Subcommand permissions
   smartspawner.command.reload:
-    description: "Permission to reload SmartSpawner plugin"
+    description: "Permission to reload CraftionSpawner plugin"
     default: op
 
   smartspawner.command.give:
@@ -161,15 +162,15 @@ permissions:
     default: op
 
   smartspawner.command.set:
-    description: "Allow setting SmartSpawner stack size, range, and delay"
+    description: "Allow setting CraftionSpawner stack size, range, and delay"
     default: op
 
   smartspawner.command.language:
-    description: "Allow changing the active SmartSpawner language"
+    description: "Allow changing the active CraftionSpawner language"
     default: op
 
   smartspawner.command.gui_layout:
-    description: "Allow changing the active SmartSpawner GUI layout"
+    description: "Allow changing the active CraftionSpawner GUI layout"
     default: op
 
   # Feature permissions

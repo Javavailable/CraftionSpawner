@@ -8,6 +8,7 @@ import github.nighter.smartspawner.utils.ItemTooltipUtil;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import github.nighter.smartspawner.utils.NamespacedKeyUtil;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.EntityType;
@@ -35,7 +36,7 @@ public class SpawnerItemFactory {
     public SpawnerItemFactory(SmartSpawner plugin) {
         this.plugin = plugin;
         this.languageManager = plugin.getLanguageManager();
-        VANILLA_SPAWNER_KEY = new NamespacedKey(plugin, "vanilla_spawner");
+        VANILLA_SPAWNER_KEY = NamespacedKeyUtil.create("vanilla_spawner");
     }
 
     public void reload() {
@@ -248,7 +249,7 @@ public class SpawnerItemFactory {
             
             // Store the item material in persistent data
             meta.getPersistentDataContainer().set(
-                    new NamespacedKey(plugin, "item_spawner_material"),
+                    NamespacedKeyUtil.create("item_spawner_material"),
                     PersistentDataType.STRING,
                     itemMaterial.name()
             );

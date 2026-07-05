@@ -91,3 +91,17 @@ These are future planned packages (not implemented in S0):
 - **Full runtime identity migration:** deferred to S1B
 - **Full Craftion language/GUI localization:** deferred to a later package
 - **Upstream attribution:** preserved
+
+## S1B Runtime Identity
+
+- Runtime plugin name: CraftionSpawner
+- Version: 1.7.0.1-craftion.2
+- Primary command: `/craftionspawner`
+- Aliases: `/cspawner`, `/spawner`, `/smartspawner`, `/ss`
+- Retained permissions: `smartspawner.*`
+- Retained PDC namespace: `smartspawner`
+- Legacy folder migration: Safely moves `plugins/SmartSpawner` to `plugins/CraftionSpawner` if the new folder does not exist or is completely empty. Fails safely without deletion if both exist.
+- Upstream updater: Disabled.
+- Upstream bStats: Disabled.
+- Java packages and API class names: Retained.
+- Localization: Full Craftion language and GUI localization remains pending.

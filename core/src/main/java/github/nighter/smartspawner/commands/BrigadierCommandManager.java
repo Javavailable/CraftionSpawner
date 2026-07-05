@@ -27,11 +27,12 @@ public class BrigadierCommandManager {
             final Commands commands = event.registrar();
 
             // Register main command
-            commands.register(mainCommand.buildCommand(), "Main SmartSpawner command");
+            commands.register(mainCommand.buildCommand(), "Main CraftionSpawner command");
 
             // Register aliases
-            commands.register(mainCommand.buildAliasCommand(), "SmartSpawner command alias");
-            commands.register(mainCommand.buildAliasCommand2(), "SmartSpawner command short alias");
+            mainCommand.buildAliases().forEach(node -> {
+                commands.register(node, "CraftionSpawner command alias");
+            });
         });
     }
 }
