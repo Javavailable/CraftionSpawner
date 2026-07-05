@@ -43,6 +43,24 @@ This is a manual checklist to verify the SmartSpawner upstream baseline behaves 
 - [ ] chunk load/unload does not throw errors
 - [ ] spawner continues producing after reload/restart
 
+## S1B Runtime Identity
+- [ ] plugin loads as CraftionSpawner
+- [ ] `/craftionspawner` works
+- [ ] `/cspawner` works
+- [ ] `/spawner` works
+- [ ] `/smartspawner` works
+- [ ] `/ss` works
+- [ ] existing `smartspawner.*` permissions work
+- [ ] old SmartSpawner folder migrates when the new folder is absent
+- [ ] old folder migrates when the new folder is empty
+- [ ] two populated folders are not merged
+- [ ] legacy SmartSpawner items remain recognized
+- [ ] new items still use the `smartspawner` namespace
+- [ ] no upstream update message appears
+- [ ] no upstream bStats submission occurs
+- [ ] restart persistence remains correct
+- [ ] no Paper/Folia region-thread warnings occur
+
 ## Result
 - **PASS:** [ ]
 - **FAIL:** [ ]

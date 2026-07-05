@@ -92,7 +92,7 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
     @Getter
     private static SmartSpawner instance;
     public final int DATA_VERSION = 3;
-    private final boolean debugMode = getConfig().getBoolean("debug", false);
+    private boolean debugMode;
 
     // Integration Manager
     private IntegrationManager integrationManager;
@@ -182,19 +182,12 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
         instance = this;
         
         // --- CraftionSpawner Data Folder Migration ---
-        java.io.File oldFolder = new java.io.File(getDataFolder().getParentFile(), "SmartSpawner");
-        if (oldFolder.exists() && oldFolder.isDirectory() && !getDataFolder().exists()) {
-            getLogger().info("Migrating legacy SmartSpawner data folder...");
-            try {
-                java.nio.file.Files.move(oldFolder.toPath(), getDataFolder().toPath());
-                getLogger().info("Legacy data folder migrated successfully.");
-            } catch (java.io.IOException e) {
-                getLogger().log(Level.SEVERE, "Failed to migrate legacy data folder! Configuration might be fresh.", e);
-            }
-        }
+        github.nighter.smartspawner.migration.LegacyDataFolderMigrator.migrateIfNeeded(this);
         // ---------------------------------------------
 
+        reloadConfig();
         Config.load(this);
+        this.debugMode = getConfig().getBoolean("debug", false);
 
         // Initialize plugin integrations
         this.integrationManager = new IntegrationManager(this);
@@ -208,7 +201,6 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
 
         // Setup plugin infrastructure
         setupCommand();
-        setupBtatsMetrics();
         registerListeners();
 
         // Trigger world event handler to attempt initial spawner loading
@@ -218,7 +210,7 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
         }
 
         long loadTime = System.currentTimeMillis() - startTime;
-        getLogger().info("SmartSpawner has been enabled! (Loaded in " + loadTime + "ms)");
+        getLogger().info("CraftionSpawner has been enabled! (Loaded in " + loadTime + "ms)");
     }
 
     @Override
@@ -499,57 +491,6 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
 
     private void setupBtatsMetrics() {
         // bStats disabled for CraftionSpawner fork
-        /*
-        Metrics metrics = new Metrics(this, 24822);
-
-        // --- Feature toggles ---
-        metrics.addCustomChart(new SimplePie("holograms", () ->
-                String.valueOf(getConfig().getBoolean("hologram.enabled", false))));
-
-        metrics.addCustomChart(new SimplePie("hoppers", () ->
-                String.valueOf(getConfig().getBoolean("hopper.enabled", false))));
-
-        // Number of spawner *blocks* placed (each record = 1 block, regardless of stack size)
-        metrics.addCustomChart(new SimplePie("spawner_blocks", () ->
-                bucketSpawnerCount(spawnerManager.getTotalSpawners())));
-
-        // Total stacked spawners across all worlds (sum of every block's stack size)
-        metrics.addCustomChart(new SimplePie("stacked_spawners", () -> {
-            long totalStacked = spawnerManager.getAllSpawners().stream()
-                    .mapToLong(SpawnerData::getStackSize)
-                    .sum();
-            return bucketSpawnerCount(totalStacked);
-        }));
-
-        // --- Storage backend ---
-        metrics.addCustomChart(new SimplePie("storage_mode", () ->
-                getConfig().getString("database.mode", "YAML")));
-
-        // --- Language & GUI layout ---
-        metrics.addCustomChart(new SimplePie("language", () ->
-                getConfig().getString("language", "en_US")));
-
-        metrics.addCustomChart(new SimplePie("gui_layout", () ->
-                getConfig().getString("gui_layout", "default")));
-
-        // --- Protection plugin integrations ---
-        metrics.addCustomChart(new AdvancedPie("protection_plugins", () -> {
-            Map<String, Integer> map = new HashMap<>();
-            if (integrationManager.isHasWorldGuard())        map.put("WorldGuard", 1);
-            if (integrationManager.isHasTowny())             map.put("Towny", 1);
-            if (integrationManager.isHasLands())             map.put("Lands", 1);
-            if (integrationManager.isHasGriefPrevention())   map.put("GriefPrevention", 1);
-            if (integrationManager.isHasSuperiorSkyblock2()) map.put("SuperiorSkyblock2", 1);
-            if (integrationManager.isHasBentoBox())          map.put("BentoBox", 1);
-            if (integrationManager.isHasIridiumSkyblock())   map.put("IridiumSkyblock", 1);
-            if (integrationManager.isHasPlotSquared())       map.put("PlotSquared", 1);
-            if (integrationManager.isHasResidence())         map.put("Residence", 1);
-            if (integrationManager.isHasMinePlots())         map.put("MinePlots", 1);
-            if (integrationManager.isHasSimpleClaimSystem()) map.put("SimpleClaimSystem", 1);
-            if (map.isEmpty()) map.put("None", 1);
-            return map;
-        }));
-        */
     }
 
     /** Bucket a spawner/stack count into a human-readable range label (supports up to ~100M). */
@@ -628,7 +569,7 @@ public class SmartSpawner extends JavaPlugin implements SmartSpawnerPlugin {
     public void onDisable() {
         saveAndCleanup();
         SpawnerMobHeadTexture.clearCache();
-        getLogger().info("SmartSpawner has been disabled!");
+        getLogger().info("CraftionSpawner has been disabled!");
     }
 
     private void saveAndCleanup() {
