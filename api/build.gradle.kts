@@ -7,14 +7,14 @@ dependencies {
 publishing {
     publications {
         create<MavenPublication>("mavenJava") {
-            groupId = "github.nighter"
-            artifactId = "smartspawner-api"
+            groupId = "io.github.javavailable"
+            artifactId = "craftionspawner-api"
             from(components["java"])
 
             pom {
-                name.set("SmartSpawner API")
-                description.set("API for SmartSpawner plugin - allows other plugins to create and manage spawners")
-                url.set("https://github.com/OpenVdra/SmartSpawner")
+                name.set("CraftionSpawner API")
+                description.set("API for CraftionSpawner plugin")
+                url.set("https://github.com/Javavailable/CraftionSpawner")
                 licenses {
                     license {
                         name.set("MIT License")

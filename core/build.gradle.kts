@@ -68,7 +68,7 @@ tasks.withType<Javadoc>().configureEach {
 
 // Don't use 'jar' task to build plugin jar, use 'shadowJar' task instead
 tasks.jar {
-    archiveBaseName.set("SmartSpawnerJar")
+    archiveBaseName.set("CraftionSpawnerJar")
     archiveVersion.set(version.toString())
 
     from(project(":api").sourceSets["main"].output)
@@ -78,7 +78,7 @@ tasks.jar {
 
 tasks.shadowJar {
 
-    archiveBaseName.set("SmartSpawner")
+    archiveBaseName.set("CraftionSpawner")
     archiveVersion.set(version.toString())
     archiveClassifier.set("")
     from(project(":api").sourceSets["main"].output)
