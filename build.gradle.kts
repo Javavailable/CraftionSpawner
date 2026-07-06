@@ -10,7 +10,7 @@ allprojects {
     apply(plugin = "maven-publish")
 
     group = "io.github.javavailable"
-    version = "1.7.0.1-craftion.4"
+    version = "1.7.0.1-craftion.5"
 
     repositories {
         mavenCentral()
@@ -86,21 +86,24 @@ subprojects {
     }
 }
 
-val targetJavaVersion = 25
+val defaultJavaVersion = 25
+val apiJavaVersion = 21
 allprojects {
+    val projectJavaVersion = if (path == ":api") apiJavaVersion else defaultJavaVersion
+
     java {
-        val javaVersion = JavaVersion.toVersion(targetJavaVersion)
+        val javaVersion = JavaVersion.toVersion(projectJavaVersion)
         sourceCompatibility = javaVersion
         targetCompatibility = javaVersion
         if (JavaVersion.current() < javaVersion) {
-            toolchain.languageVersion.set(JavaLanguageVersion.of(targetJavaVersion))
+            toolchain.languageVersion.set(JavaLanguageVersion.of(projectJavaVersion))
         }
     }
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        if (targetJavaVersion >= 10 || JavaVersion.current().isJava10Compatible) {
-            options.release.set(targetJavaVersion)
+        if (projectJavaVersion >= 10 || JavaVersion.current().isJava10Compatible) {
+            options.release.set(projectJavaVersion)
         }
     }
 }

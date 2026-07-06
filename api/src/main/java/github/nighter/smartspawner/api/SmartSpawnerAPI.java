@@ -4,6 +4,7 @@ import github.nighter.smartspawner.api.data.SpawnerDataDTO;
 import github.nighter.smartspawner.api.data.SpawnerDataModifier;
 import github.nighter.smartspawner.api.gui.GuiLayoutRegistry;
 import github.nighter.smartspawner.api.gui.SpawnerGuiLayoutProvider;
+import github.nighter.smartspawner.api.output.SpawnerOutputRouterRegistry;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
@@ -171,6 +172,25 @@ public interface SmartSpawnerAPI {
      * @return the layout registry instance
      */
     GuiLayoutRegistry getLayoutRegistry();
+
+    /**
+     * Gets the {@link SpawnerOutputRouterRegistry} used to register output routers.
+     *
+     * <p>Registered routers may consume part or all of a spawner's newly generated item output
+     * before the unconsumed remainder falls back to CraftionSpawner's internal virtual storage.
+     * With no routers registered, generation and storage behave exactly as before. Generated
+     * experience is never routed.
+     *
+     * <p>This is a default method so binaries implementing an older API revision remain loadable.
+     * CraftionSpawner's own implementation overrides it. Third-party API implementations that do
+     * not support output routing receive an explicit exception only when the new method is called.
+     *
+     * @return the output router registry instance
+     * @throws UnsupportedOperationException if an alternative API implementation does not support S3 routing
+     */
+    default SpawnerOutputRouterRegistry getOutputRouterRegistry() {
+        throw new UnsupportedOperationException("Output routing is not supported by this SmartSpawnerAPI implementation");
+    }
 
     /**
      * Sets a provider to dynamically override GUI layouts on a per-spawner basis.

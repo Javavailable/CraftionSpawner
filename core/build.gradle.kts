@@ -8,6 +8,9 @@ plugins {
 val shade: Configuration by configurations.creating
 configurations {
     implementation.get().extendsFrom(shade)
+    testRuntimeClasspath {
+        exclude(group = "com.technicjelle", module = "BMUtils")
+    }
 }
 
 dependencies {
@@ -55,6 +58,18 @@ dependencies {
     compileOnly("org.projectlombok:lombok:1.18.46")
     annotationProcessor("org.projectlombok:lombok:1.18.46")
     shade("org.bstats:bstats-bukkit:3.2.1")
+
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    // Test-only mirror of the production compileOnly WorldGuard edge. Without it, Residence's
+    // older transitive WorldGuard request pulls conflicting strict Mojang constraints into tests.
+    testImplementation("com.sk89q.worldguard:worldguard-bukkit:7.1.0-SNAPSHOT")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -128,7 +143,7 @@ tasks.register("generateLanguageChangelog") {
         val locale    = "en_US"
         val langFiles = listOf("messages.yml", "gui.yml", "command_gui.yml", "items.yml", "formatting.yml", "command_messages.yml", "hologram.yml")
 
-        // ── 1. Fetch latest GitHub release tag ───────────────────────────────
+        // ── 1. Fetch latest GitHub release tag ──────────────────────────
         val githubVersion: String = try {
             val conn = URI.create(
                 "https://api.github.com/repos/OpenVdra/SmartSpawner/releases/latest"
@@ -151,7 +166,7 @@ tasks.register("generateLanguageChangelog") {
             return@doLast
         }
 
-        // ── 2. Compare versions ──────────────────────────────────────────────
+        // ── 2. Compare versions ─────────────────────────────────
         fun parseVer(v: String): List<Int> =
             v.removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
 
@@ -170,7 +185,7 @@ tasks.register("generateLanguageChangelog") {
             return@doLast
         }
 
-        // ── 3. Guard against duplicates ──────────────────────────────────────
+        // ── 3. Guard against duplicates ───────────────────────────
         val existing = if (changelogFile.exists()) changelogFile.readText() else ""
         if (existing.contains("── v$currentVersion")) {
             println("[changelog] Version $currentVersion already present – skipping.")
@@ -178,8 +193,6 @@ tasks.register("generateLanguageChangelog") {
         }
 
         // ── 3b. Resolve the "to" ref: use the version tag if it exists, else main ──
-        //   Tags in this repo have no "v" prefix (e.g. "1.6.2"), so we check
-        //   both the bare version and the v-prefixed form.
         val toRef: String = run {
             listOf(currentVersion, "v$currentVersion").firstOrNull { tag ->
                 try {
@@ -197,14 +210,11 @@ tasks.register("generateLanguageChangelog") {
         }
         println("[changelog] Compare range: $githubVersion...$toRef")
 
-        // ── 4. YAML flat-key extractor ───────────────────────────────────────
-        //  Returns map of  dotPath → Pair(1-based lineNumber, rawValue)
-        //  Handles comments, blank lines, list items, and block scalars.
+        // ── 4. YAML flat-key extractor ───────────────────────────
         fun extractKeys(yaml: String): LinkedHashMap<String, Pair<Int, String>> {
             val result = LinkedHashMap<String, Pair<Int, String>>()
-            // stack entries: indent-level → key-name
             val stack  = ArrayDeque<Pair<Int, String>>()
-            var blockScalarIndent = -1   // >=0 while inside a | or > scalar
+            var blockScalarIndent = -1
 
             yaml.lines().forEachIndexed { idx, raw ->
                 val lineNo  = idx + 1
@@ -213,13 +223,11 @@ tasks.register("generateLanguageChangelog") {
 
                 val indent = raw.length - trimmed.length
 
-                // Leaving a block scalar when indentation returns to its level
                 if (blockScalarIndent >= 0) {
                     if (indent > blockScalarIndent) return@forEachIndexed
                     else blockScalarIndent = -1
                 }
 
-                // List items are not individually tracked as keys
                 if (trimmed.startsWith("- ") || trimmed == "-") return@forEachIndexed
 
                 val colonIdx = trimmed.indexOf(':')
@@ -230,13 +238,11 @@ tasks.register("generateLanguageChangelog") {
 
                 var value = trimmed.substring(colonIdx + 1).trim()
 
-                // Strip trailing inline comment (only outside quoted values)
                 if (!value.startsWith('"') && !value.startsWith('\'')) {
                     val ci = value.indexOf(" #")
                     if (ci >= 0) value = value.substring(0, ci).trim()
                 }
 
-                // Pop stack entries whose indent >= current level
                 while (stack.isNotEmpty() && stack.last().first >= indent) stack.removeLast()
 
                 val path = if (stack.isEmpty()) key
@@ -255,10 +261,8 @@ tasks.register("generateLanguageChangelog") {
             return result
         }
 
-        // Truncate long values for display
         fun truncate(s: String, max: Int = 70) = if (s.length > max) s.take(max) + "…" else s
 
-        // ── 5. Fetch the old language files from GitHub and diff ─────────────
         fun fetchRaw(tag: String, file: String): String? = try {
             val url = "https://raw.githubusercontent.com/OpenVdra/" +
                       "SmartSpawner/$tag/core/src/main/resources/language/$locale/$file"
@@ -270,7 +274,6 @@ tasks.register("generateLanguageChangelog") {
             if (conn.responseCode == 200) conn.inputStream.bufferedReader().readText() else null
         } catch (e: Exception) { null }
 
-        // Per-file diffs: maps file name → pre-formatted entry lines
         val addedPerFile   = mutableMapOf<String, List<String>>()
         val changedPerFile = mutableMapOf<String, List<String>>()
         val removedPerFile = mutableMapOf<String, List<String>>()
@@ -313,8 +316,6 @@ tasks.register("generateLanguageChangelog") {
             println("[changelog]   $file – +${added.size} ~${changed.size} -${removed.size}")
         }
 
-        // ── 6. Build the CHANGELOG entry ─────────────────────────────────────
-        // perFile values are already fully-formatted lines ("      - key (Lnn): value")
         fun formatSection(label: String, perFile: Map<String, List<String>>): String {
             if (perFile.isEmpty()) return "  $label:\n    (none)"
             val sb = StringBuilder("  $label:\n")
@@ -341,7 +342,6 @@ tasks.register("generateLanguageChangelog") {
             appendLine()
         }
 
-        // ── 7. Insert before the first existing version entry ────────────────
         val marker  = "\n──"
         val updated = if (existing.contains(marker)) {
             existing.replaceFirst(marker, "\n$newEntry──")

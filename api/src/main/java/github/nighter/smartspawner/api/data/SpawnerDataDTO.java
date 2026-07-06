@@ -1,5 +1,6 @@
 package github.nighter.smartspawner.api.data;
 
+import lombok.AccessLevel;
 import lombok.Getter;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -15,6 +16,10 @@ import org.bukkit.entity.EntityType;
 public class SpawnerDataDTO {
 
     private final String spawnerId;
+    // Location is mutable. Never expose the internal instance: the Lombok getter is disabled and
+    // getLocation() returns a defensive clone, so external routers/consumers cannot corrupt the real
+    // spawner location (which the location indexes still rely on).
+    @Getter(AccessLevel.NONE)
     private final Location location;
     private final EntityType entityType;
     private final Material spawnedItemMaterial;
@@ -27,10 +32,11 @@ public class SpawnerDataDTO {
     private final long baseSpawnerDelay;
 
     /**
-     * Creates a new spawner data DTO.
+     * Creates a new spawner data DTO. The supplied {@code location} is defensively cloned; the DTO
+     * never retains the caller's mutable Location instance.
      *
      * @param spawnerId the unique spawner ID
-     * @param location the spawner location
+     * @param location the spawner location (defensively cloned)
      * @param entityType the entity type
      * @param spawnedItemMaterial the spawned item material for item spawners
      * @param stackSize the current stack size (read-only)
@@ -46,7 +52,8 @@ public class SpawnerDataDTO {
                           int baseMaxStoragePages, int baseMinMobs, int baseMaxMobs,
                           long baseMaxStoredExp, long baseSpawnerDelay) {
         this.spawnerId = spawnerId;
-        this.location = location;
+        // Defensive copy: do not retain the caller's mutable Location instance.
+        this.location = (location != null) ? location.clone() : null;
         this.entityType = entityType;
         this.spawnedItemMaterial = spawnedItemMaterial;
         this.stackSize = stackSize;
@@ -59,6 +66,16 @@ public class SpawnerDataDTO {
     }
 
     /**
+     * Returns a defensive clone of the spawner location. Mutating the returned instance never affects
+     * the DTO's internal Location or the real internal spawner location.
+     *
+     * @return a fresh clone of the location, or null if none
+     */
+    public Location getLocation() {
+        return (location != null) ? location.clone() : null;
+    }
+
+    /**
      * Checks if this is an item spawner.
      *
      * @return true if spawner spawns items instead of entities
@@ -67,4 +84,3 @@ public class SpawnerDataDTO {
         return entityType == EntityType.ITEM && spawnedItemMaterial != null;
     }
 }
-
