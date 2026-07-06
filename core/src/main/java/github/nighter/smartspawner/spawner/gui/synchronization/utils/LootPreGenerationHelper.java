@@ -7,14 +7,11 @@ import org.bukkit.Location;
 
 import java.util.concurrent.TimeUnit;
 
-/**
- * Helper class for pre-generating loot to improve performance.
- * Handles the timing and execution of loot pre-generation based on spawn timers.
- */
+/** Handles asynchronous loot pre-generation and early commit near the timer boundary. */
 public final class LootPreGenerationHelper {
 
-    private static final long PRE_GENERATION_THRESHOLD = 2000L; // 2 seconds - start pre-generating loot
-    private static final long EARLY_SPAWN_THRESHOLD = 1000L; // 1 second - add loot early for smooth UX
+    private static final long PRE_GENERATION_THRESHOLD = 2000L;
+    private static final long EARLY_SPAWN_THRESHOLD = 1000L;
 
     private final SmartSpawner plugin;
 
@@ -22,116 +19,109 @@ public final class LootPreGenerationHelper {
         this.plugin = plugin;
     }
 
-    /**
-     * Checks if loot should be pre-generated based on remaining time until spawn.
-     *
-     * @param timeUntilNextSpawn Time remaining in milliseconds
-     * @return true if loot should be pre-generated
-     */
     public boolean shouldPreGenerateLoot(long timeUntilNextSpawn) {
         return timeUntilNextSpawn > 0 && timeUntilNextSpawn <= PRE_GENERATION_THRESHOLD;
     }
 
-    /**
-     * Checks if pre-generated loot should be added early to storage.
-     *
-     * @param timeUntilNextSpawn Time remaining in milliseconds
-     * @return true if loot should be added early
-     */
     public boolean shouldAddLootEarly(long timeUntilNextSpawn) {
         return timeUntilNextSpawn > 0 && timeUntilNextSpawn <= EARLY_SPAWN_THRESHOLD;
     }
 
-    /**
-     * Triggers pre-generation of loot for a spawner asynchronously.
-     *
-     * @param spawner The spawner data
-     */
     public void preGenerateLoot(SpawnerData spawner) {
-        if (spawner.isPreGenerating() || spawner.hasPreGeneratedLoot()) {
-            return;
-        }
-
         if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
             return;
         }
 
-        spawner.setPreGenerating(true);
+        long generationEpoch = spawner.tryBeginPreGeneration();
+        if (generationEpoch < 0L) {
+            return;
+        }
 
         Location spawnerLocation = spawner.getSpawnerLocation();
-        if (spawnerLocation != null) {
-            Scheduler.runLocationTask(spawnerLocation, () -> {
-                if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
-                    spawner.setPreGenerating(false);
-                    return;
-                }
-
-                plugin.getSpawnerLootGenerator().preGenerateLoot(spawner, (items, experience) -> {
-                    spawner.storePreGeneratedLoot(items, experience);
-                    spawner.setPreGenerating(false);
-                });
-            });
+        if (spawnerLocation == null) {
+            spawner.finishPreGeneration(generationEpoch);
+            return;
         }
+
+        Scheduler.runLocationTask(spawnerLocation, () -> {
+            if (!spawner.isGeneratedOutputEpoch(generationEpoch)
+                    || !spawner.getSpawnerActive()
+                    || spawner.getSpawnerStop().get()) {
+                spawner.finishPreGeneration(generationEpoch);
+                return;
+            }
+
+            plugin.getSpawnerLootGenerator().preGenerateLoot(spawner, (items, experience) -> {
+                try {
+                    if (spawner.getSpawnerActive() && !spawner.getSpawnerStop().get()) {
+                        spawner.storePreGeneratedLoot(items, experience, generationEpoch);
+                    }
+                } finally {
+                    spawner.finishPreGeneration(generationEpoch);
+                }
+            });
+        });
     }
 
-    /**
-     * Adds pre-generated loot to spawner early for smooth UX.
-     * This prevents flicker when timer resets.
-     *
-     * @param spawner The spawner data
-     * @param cachedDelay The cached spawn delay
-     */
+    /** Adds a pre-generated batch early while preserving its originating lifecycle epoch. */
     public void addPreGeneratedLootEarly(SpawnerData spawner, long cachedDelay) {
         if (!spawner.hasPreGeneratedLoot()) {
             return;
         }
 
+        boolean resetAfterUnlock = false;
         try {
-            if (spawner.getDataLock().tryLock(100, TimeUnit.MILLISECONDS)) {
-                try {
-                    // Double-check time hasn't changed
-                    long currentTime = System.currentTimeMillis();
-                    long lastSpawnTime = spawner.getLastSpawnTime();
-                    long timeElapsed = currentTime - lastSpawnTime;
-                    long remainingTime = cachedDelay - timeElapsed;
+            if (!spawner.getDataLock().tryLock(100, TimeUnit.MILLISECONDS)) {
+                return;
+            }
+            try {
+                long currentTime = System.currentTimeMillis();
+                long lastSpawnTime = spawner.getLastSpawnTime();
+                long timeElapsed = currentTime - lastSpawnTime;
+                long remainingTime = cachedDelay - timeElapsed;
 
-                    // Only spawn if still within early threshold
-                    if (remainingTime > 0 && remainingTime <= EARLY_SPAWN_THRESHOLD) {
-                        if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
-                            spawner.resetGeneratedLootState();
-                            return;
-                        }
-
-                        Location spawnerLocation = spawner.getSpawnerLocation();
-                        if (spawnerLocation != null) {
-                            // Calculate when the loot should have spawned (for timer accuracy)
-                            final long scheduledSpawnTime = lastSpawnTime + cachedDelay;
-
-                            Scheduler.runLocationTask(spawnerLocation, () -> {
-                                if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
-                                    spawner.resetGeneratedLootState();
-                                    return;
-                                }
-
-                                if (spawner.hasPreGeneratedLoot()) {
-                                    SpawnerData.PreGeneratedLootBatch batch = spawner.claimPreGeneratedLootBatch();
-                                    if (batch == null) {
-                                        return;
-                                    }
-
-                                    // Add the loot with scheduled spawn time for accurate timer reset
-                                    plugin.getSpawnerLootGenerator().addPreGeneratedLoot(
-                                            spawner, batch.getItems(), batch.getExperience(), scheduledSpawnTime);
-                                }
-                            });
-                        }
-                    }
-                } finally {
-                    spawner.getDataLock().unlock();
+                if (remainingTime <= 0 || remainingTime > EARLY_SPAWN_THRESHOLD) {
+                    return;
                 }
+                if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
+                    // Do not acquire generatedOutputLock while dataLock is held. The commit path uses
+                    // generatedOutputLock -> dataLock, so reset after releasing dataLock.
+                    resetAfterUnlock = true;
+                    return;
+                }
+
+                Location spawnerLocation = spawner.getSpawnerLocation();
+                if (spawnerLocation == null) {
+                    return;
+                }
+                final long scheduledSpawnTime = lastSpawnTime + cachedDelay;
+
+                Scheduler.runLocationTask(spawnerLocation, () -> {
+                    if (!spawner.getSpawnerActive() || spawner.getSpawnerStop().get()) {
+                        spawner.resetGeneratedLootState();
+                        return;
+                    }
+
+                    SpawnerData.PreGeneratedLootBatch batch = spawner.claimPreGeneratedLootBatch();
+                    if (batch == null) {
+                        return;
+                    }
+                    plugin.getSpawnerLootGenerator().addPreGeneratedLoot(
+                            spawner,
+                            batch.getItems(),
+                            batch.getExperience(),
+                            scheduledSpawnTime,
+                            batch.getGenerationEpoch());
+                });
+            } finally {
+                spawner.getDataLock().unlock();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } finally {
+            if (resetAfterUnlock) {
+                spawner.resetGeneratedLootState();
+            }
         }
     }
 }

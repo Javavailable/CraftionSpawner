@@ -51,9 +51,7 @@ public class SpawnerOutputRoutingService {
         return registry.hasRouters();
     }
 
-    /**
-     * Immutable outcome of a routing pass.
-     */
+    /** Immutable outcome of a routing pass. */
     public static final class RoutingOutcome {
         private final List<ItemStack> remaining;
         private final boolean consumedAny;
@@ -65,16 +63,12 @@ public class SpawnerOutputRoutingService {
             this.attempted = attempted;
         }
 
-        /**
-         * @return an owned, mutable list of the unconsumed remainder (safe to insert internally)
-         */
+        /** @return an owned, mutable list of the unconsumed remainder (safe to insert internally) */
         public List<ItemStack> remaining() {
             return remaining;
         }
 
-        /**
-         * @return {@code true} if any positive item quantity was consumed externally
-         */
+        /** @return {@code true} if any positive item quantity was consumed externally */
         public boolean consumedAny() {
             return consumedAny;
         }
@@ -82,8 +76,7 @@ public class SpawnerOutputRoutingService {
         /**
          * @return {@code true} only when the generated remainder was non-empty, the exact immutable
          * snapshot used for this pass contained at least one router, and at least one router
-         * invocation was actually attempted. Derived from the same snapshot used for routing (never
-         * from a separate {@code hasActiveRouters()} read).
+         * invocation was actually attempted
          */
         public boolean attempted() {
             return attempted;
@@ -92,20 +85,12 @@ public class SpawnerOutputRoutingService {
 
     /**
      * Routes the given newly generated items. Never mutates the supplied list.
-     *
-     * @param spawner   the owning spawner (used only to build a read-only DTO)
-     * @param generated the newly generated items for this cycle
-     * @return the unconsumed remainder, whether any external consumption occurred, and whether a
-     *         router pass was actually attempted against a non-empty snapshot
      */
     public RoutingOutcome route(SpawnerData spawner, List<ItemStack> generated) {
         return route(SmartSpawnerAPIImpl.convertToDTO(spawner), generated, registry.getSnapshot());
     }
 
-    /*
-     * Package-private pure-routing seam for deterministic unit tests. Callers supply the exact
-     * immutable router snapshot to verify unregister/register races without constructing a plugin.
-     */
+    /* Package-private pure-routing seam for deterministic unit tests. */
     RoutingOutcome route(SpawnerDataDTO spawnerSnapshot, List<ItemStack> generated, List<RegisteredRouter> snapshot) {
         List<RegisteredRouter> effectiveSnapshot = snapshot != null ? snapshot : List.of();
         List<ItemStack> remaining = deepClone(generated);
@@ -122,20 +107,17 @@ public class SpawnerOutputRoutingService {
                 break;
             }
 
-            // Immutable context with a deep clone of the CURRENT remaining batch only.
-            SpawnerOutputContext context = new SpawnerOutputContext(
-                    spawnerSnapshot,
-                    remaining);
+            // Context construction occurs before the external invocation boundary. If cloning the
+            // current internal remainder fails here, no router has run and the caller may retry.
+            SpawnerOutputContext context = new SpawnerOutputContext(spawnerSnapshot, remaining);
 
-            // A router invocation is now being attempted against this non-empty snapshot.
             attempted = true;
-
             SpawnerOutputResult result;
             try {
                 result = entry.getRouter().route(context);
             } catch (Throwable t) {
                 warn(entry.getKey(), "threw an exception (" + t.getClass().getSimpleName() + ": " + t.getMessage() + ")");
-                continue; // fail-open: keep current remainder
+                continue;
             }
 
             if (result == null) {
@@ -150,7 +132,6 @@ public class SpawnerOutputRoutingService {
                     continue;
                 }
 
-                // Defensive validation against the input batch (multiset by item signature).
                 Map<ItemSignature, Long> inputCounts = countBySignature(remaining);
                 Map<ItemSignature, Long> outputCounts = new HashMap<>();
                 boolean valid = true;
@@ -178,15 +159,15 @@ public class SpawnerOutputRoutingService {
                     }
                 }
                 if (!valid) {
-                    continue; // fail-open: keep full current remainder
+                    continue;
                 }
 
-                // Accept the router's decision; adopt an owned deep clone of the remainder.
                 remaining = deepClone(returned);
             } catch (Throwable t) {
                 warn(entry.getKey(), "returned an invalid result ("
                         + t.getClass().getSimpleName() + ": " + t.getMessage() + ")");
-                continue; // fail-open after attempted router invocation: keep current remainder
+                // The router callback has already run. Keep the current pre-router remainder and
+                // return attempted=true rather than letting any post-callback failure escape.
             }
         }
 
@@ -194,23 +175,27 @@ public class SpawnerOutputRoutingService {
         try {
             consumedAny = totalQuantity(remaining) < originalTotal;
         } catch (Throwable ignored) {
-            // An exception here would be after a router-attempt boundary. Preserve the current
-            // remainder and keep attempted=true rather than allowing the caller to replay routers.
+            // Preserve attempted=true after an external invocation even if quantity inspection fails.
         }
         return new RoutingOutcome(remaining, consumedAny, attempted);
     }
 
+    /** Warning/reporting must never reopen the post-router replay window. */
     private void warn(NamespacedKey key, String detail) {
-        String k = key.toString();
-        long now = System.currentTimeMillis();
-        Long last = lastWarnByKey.get(k);
-        if (last != null && now - last < WARN_INTERVAL_MS) {
-            return; // rate-limited: avoid one warning per generation tick
-        }
-        lastWarnByKey.put(k, now);
-        if (plugin != null && plugin.getLogger() != null) {
-            plugin.getLogger().warning("Output router '" + k + "' " + detail
-                    + "; ignoring it for this batch (fail-open, generated items preserved).");
+        try {
+            String k = key != null ? key.toString() : "<unknown>";
+            long now = System.currentTimeMillis();
+            Long last = lastWarnByKey.get(k);
+            if (last != null && now - last < WARN_INTERVAL_MS) {
+                return;
+            }
+            lastWarnByKey.put(k, now);
+            if (plugin != null && plugin.getLogger() != null) {
+                plugin.getLogger().warning("Output router '" + k + "' " + detail
+                        + "; ignoring it for this batch (fail-open, generated items preserved).");
+            }
+        } catch (Throwable ignored) {
+            // Fail-open routing safety is more important than diagnostic reporting.
         }
     }
 

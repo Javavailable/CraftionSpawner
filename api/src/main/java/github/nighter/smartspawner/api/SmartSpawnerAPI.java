@@ -181,9 +181,16 @@ public interface SmartSpawnerAPI {
      * With no routers registered, generation and storage behave exactly as before. Generated
      * experience is never routed.
      *
+     * <p>This is a default method so binaries implementing an older API revision remain loadable.
+     * CraftionSpawner's own implementation overrides it. Third-party API implementations that do
+     * not support output routing receive an explicit exception only when the new method is called.
+     *
      * @return the output router registry instance
+     * @throws UnsupportedOperationException if an alternative API implementation does not support S3 routing
      */
-    SpawnerOutputRouterRegistry getOutputRouterRegistry();
+    default SpawnerOutputRouterRegistry getOutputRouterRegistry() {
+        throw new UnsupportedOperationException("Output routing is not supported by this SmartSpawnerAPI implementation");
+    }
 
     /**
      * Sets a provider to dynamically override GUI layouts on a per-spawner basis.

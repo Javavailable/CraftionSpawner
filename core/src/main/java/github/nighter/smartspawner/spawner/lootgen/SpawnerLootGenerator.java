@@ -1,21 +1,29 @@
 package github.nighter.smartspawner.spawner.lootgen;
 
+import github.nighter.smartspawner.Scheduler;
 import github.nighter.smartspawner.SmartSpawner;
 import github.nighter.smartspawner.config.Config;
+import github.nighter.smartspawner.spawner.data.SpawnerManager;
 import github.nighter.smartspawner.spawner.gui.synchronization.SpawnerGuiViewManager;
 import github.nighter.smartspawner.spawner.interactions.destroy.SpawnerRemovalService;
+import github.nighter.smartspawner.spawner.lootgen.loot.LootItem;
 import github.nighter.smartspawner.spawner.properties.ItemSignature;
 import github.nighter.smartspawner.spawner.properties.SpawnerData;
-import github.nighter.smartspawner.spawner.data.SpawnerManager;
 import github.nighter.smartspawner.spawner.properties.VirtualInventory;
 import github.nighter.smartspawner.spawner.utils.SpawnerLocationLockManager;
-import github.nighter.smartspawner.Scheduler;
-import github.nighter.smartspawner.spawner.lootgen.loot.LootItem;
-
-import org.bukkit.*;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.Particle;
+import org.bukkit.World;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,13 +34,11 @@ public class SpawnerLootGenerator {
     private final SpawnerManager spawnerManager;
     private final SpawnerOutputRoutingService outputRoutingService;
 
-    // Bounded, non-blocking retry for the pre-generated commit when a transient lock is unavailable.
     private static final int PREGEN_MAX_COMMIT_ATTEMPTS = 5;
     private static final long PREGEN_RETRY_DELAY_TICKS = 2L;
     private static final long PREGEN_HANDOFF_DRAIN_PERIOD_TICKS = 20L;
     private static final long PREGEN_WARN_INTERVAL_MS = 60_000L;
 
-    // Rate-limited warnings for pre-gen exhaustion requeue events (per spawner ID).
     private final ConcurrentHashMap<String, Long> lastPreGenWarnById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<HandoffKey, PendingHandoff> pendingHandoffs = new ConcurrentHashMap<>();
     private final Set<Scheduler.Task> pendingRetryTasks = ConcurrentHashMap.newKeySet();
@@ -40,20 +46,10 @@ public class SpawnerLootGenerator {
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private final Scheduler.Task pendingHandoffDrainTask;
 
-    /**
-     * Outcome of a single {@link #commitGeneratedLoot} attempt.
-     */
     private enum CommitStatus {
-        /** Cycle committed successfully (timing advanced, side effects applied). */
         COMMITTED,
-        /** Locks acquired but nothing needed committing; do not retry. */
         NOOP,
-        /**
-         * A required non-blocking lock/claim was unavailable. Safe to retry the same batch;
-         * no router was invoked and no state was mutated.
-         */
         LOCK_UNAVAILABLE,
-        /** Spawner is being removed or is a stale instance; must not route/mutate, do not retry. */
         ABORTED_STALE
     }
 
@@ -69,16 +65,24 @@ public class SpawnerLootGenerator {
     }
 
     public void spawnLootToSpawner(SpawnerData spawner) {
-        if (spawner.isSelling()) {
+        if (spawner == null || shuttingDown.get() || spawner.isSelling()
+                || !Boolean.TRUE.equals(spawner.getSpawnerActive()) || spawner.getSpawnerStop().get()) {
             return;
         }
 
-        boolean lockAcquired = spawner.getLootGenerationLock().tryLock();
-        if (!lockAcquired) {
+        final long generationEpoch = spawner.getGeneratedOutputEpoch();
+        if (!isLifecycleCurrent(spawner, generationEpoch)) {
+            return;
+        }
+
+        if (!spawner.getLootGenerationLock().tryLock()) {
             return;
         }
 
         try {
+            if (shuttingDown.get() || !isLifecycleCurrent(spawner, generationEpoch)) {
+                return;
+            }
             try {
                 if (!spawner.getDataLock().tryLock(50, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                     return;
@@ -88,49 +92,56 @@ public class SpawnerLootGenerator {
                 return;
             }
 
-            final long currentTime = System.currentTimeMillis();
-            final long spawnTime;
+            final long spawnTime = System.currentTimeMillis();
             final int minMobs;
             final int maxMobs;
-
             try {
+                if (!isLifecycleCurrent(spawner, generationEpoch)) {
+                    return;
+                }
                 boolean routersActive = outputRoutingService != null && outputRoutingService.hasActiveRouters();
-
                 int usedSlots = spawner.getVirtualInventory().getUsedSlots();
                 int maxSlots = spawner.getMaxSpawnerLootSlots();
-
-                // Skip only when both inventory and exp are full AND no router could consume items.
-                if (!routersActive && usedSlots >= maxSlots && spawner.getSpawnerExp() >= spawner.getMaxStoredExp()) {
+                if (!routersActive && usedSlots >= maxSlots
+                        && spawner.getSpawnerExp() >= spawner.getMaxStoredExp()) {
                     if (!spawner.getIsAtCapacity()) {
                         spawner.setIsAtCapacity(true);
                     }
                     return;
                 }
-
                 minMobs = spawner.getMinMobs();
                 maxMobs = spawner.getMaxMobs();
-                spawnTime = currentTime;
             } finally {
                 spawner.getDataLock().unlock();
             }
 
-            // Heavy random-loot calculation runs async; routers are NEVER invoked here.
             Scheduler.runTaskAsync(() -> {
+                if (!isLifecycleCurrent(spawner, generationEpoch)) {
+                    return;
+                }
                 LootResult loot = generateLoot(minMobs, maxMobs, spawner);
-
-                if (loot.items().isEmpty() && loot.experience() == 0) {
+                if (!isLifecycleCurrent(spawner, generationEpoch)
+                        || (loot.items().isEmpty() && loot.experience() == 0L)) {
                     return;
                 }
 
-                Scheduler.runLocationTask(spawner.getSpawnerLocation(), () -> {
-                    boolean updateLockAcquired = spawner.getLootGenerationLock().tryLock();
-                    if (!updateLockAcquired) {
+                Location location = spawner.getSpawnerLocation();
+                if (location == null) {
+                    return;
+                }
+                Scheduler.runLocationTask(location, () -> {
+                    if (!isLifecycleCurrent(spawner, generationEpoch)
+                            || !spawner.getLootGenerationLock().tryLock()) {
                         return;
                     }
                     try {
-                        // Normal path regenerates a fresh batch next cycle, so a transient lock
-                        // failure simply skips this cycle (no double-routing risk).
-                        commitGeneratedLoot(spawner, loot.items(), loot.experience(), spawnTime, false);
+                        commitGeneratedLoot(
+                                spawner,
+                                loot.items(),
+                                loot.experience(),
+                                spawnTime,
+                                false,
+                                generationEpoch);
                     } finally {
                         spawner.getLootGenerationLock().unlock();
                     }
@@ -142,27 +153,18 @@ public class SpawnerLootGenerator {
     }
 
     public LootResult generateLoot(int minMobs, int maxMobs, SpawnerData spawner) {
-
         int mobCount = ThreadLocalRandom.current().nextInt(maxMobs - minMobs + 1) + minMobs;
         long totalExperience = (long) spawner.getEntityExperienceValue() * mobCount;
-
         List<LootItem> validItems = spawner.getValidLootItems();
-
         if (validItems.isEmpty()) {
             return new LootResult(Collections.emptyList(), totalExperience);
         }
 
         Map<ItemStack, Integer> consolidatedLoot = new HashMap<>();
-
         for (LootItem lootItem : validItems) {
-            int totalAmount;
-
-            if (Config.get().isApproximateLoot() && shouldApproximate(lootItem.chance(), mobCount)) {
-                totalAmount = generateApproximatedLoot(lootItem, mobCount);
-            } else {
-                totalAmount = generateExactLoot(lootItem, mobCount);
-            }
-
+            int totalAmount = Config.get().isApproximateLoot() && shouldApproximate(lootItem.chance(), mobCount)
+                    ? generateApproximatedLoot(lootItem, mobCount)
+                    : generateExactLoot(lootItem, mobCount);
             if (totalAmount > 0) {
                 ItemStack prototype = lootItem.createItemStack();
                 if (prototype != null) {
@@ -176,7 +178,6 @@ public class SpawnerLootGenerator {
             ItemStack item = entry.getKey().clone();
             item.setAmount(Math.min(entry.getValue(), item.getMaxStackSize()));
             finalLoot.add(item);
-
             int remaining = entry.getValue() - item.getMaxStackSize();
             while (remaining > 0) {
                 ItemStack extraStack = item.clone();
@@ -185,7 +186,6 @@ public class SpawnerLootGenerator {
                 remaining -= extraStack.getAmount();
             }
         }
-
         return new LootResult(finalLoot, totalExperience);
     }
 
@@ -197,11 +197,9 @@ public class SpawnerLootGenerator {
     private int generateExactLoot(LootItem lootItem, int mobCount) {
         int successfulDrops = 0;
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        double p = lootItem.chance() / 100.0;
+        double probability = lootItem.chance() / 100.0;
         for (int i = 0; i < mobCount; i++) {
-            if (random.nextDouble() < p) {
-                successfulDrops++;
-            }
+            if (random.nextDouble() < probability) successfulDrops++;
         }
         int totalAmount = 0;
         for (int i = 0; i < successfulDrops; i++) {
@@ -211,58 +209,49 @@ public class SpawnerLootGenerator {
     }
 
     private int generateApproximatedLoot(LootItem lootItem, int mobCount) {
-        double p = lootItem.chance() / 100.0;
-        double expectedDrops = mobCount * p;
-        double avgAmount = lootItem.getAverageAmount();
-        double jitter = p != 1.0
+        double probability = lootItem.chance() / 100.0;
+        double expectedDrops = mobCount * probability;
+        double jitter = probability != 1.0
                 ? 0.95 + ThreadLocalRandom.current().nextDouble() * 0.10
                 : 1.0;
-        return (int) Math.round(expectedDrops * avgAmount * jitter);
+        return (int) Math.round(expectedDrops * lootItem.getAverageAmount() * jitter);
     }
 
     private List<ItemStack> limitItemsToAvailableSlots(List<ItemStack> items, SpawnerData spawner) {
         VirtualInventory currentInventory = spawner.getVirtualInventory();
         int maxSlots = spawner.getMaxSpawnerLootSlots();
-
         if (currentInventory.getUsedSlots() >= maxSlots) {
             return Collections.emptyList();
         }
 
         Map<ItemSignature, Long> simulatedInventory = new HashMap<>(currentInventory.getConsolidatedItems());
         List<ItemStack> acceptedItems = new ArrayList<>();
-
         items.sort(Comparator.comparing(item -> item.getType().name()));
 
         for (ItemStack item : items) {
             if (item == null || item.getAmount() <= 0) continue;
-
             Map<ItemSignature, Long> tempSimulation = new HashMap<>(simulatedInventory);
-            ItemSignature sig = VirtualInventory.getSignature(item);
-            tempSimulation.merge(sig, (long) item.getAmount(), (a, b) -> a + b);
-
-            int slotsNeeded = calculateSlots(tempSimulation);
-
-            if (slotsNeeded <= maxSlots) {
+            ItemSignature signature = VirtualInventory.getSignature(item);
+            tempSimulation.merge(signature, (long) item.getAmount(), Long::sum);
+            if (calculateSlots(tempSimulation) <= maxSlots) {
                 acceptedItems.add(item);
                 simulatedInventory = tempSimulation;
-            } else {
-                int maxStackSize = item.getMaxStackSize();
-                long currentAmount = simulatedInventory.getOrDefault(sig, 0L);
-
-                int remainingSlots = maxSlots - calculateSlots(simulatedInventory);
-                if (remainingSlots > 0) {
-                    long maxAddAmount = (long) remainingSlots * maxStackSize - (currentAmount % maxStackSize);
-                    if (maxAddAmount > 0) {
-                        ItemStack partialItem = item.clone();
-                        partialItem.setAmount((int) Math.min(maxAddAmount, item.getAmount()));
-                        acceptedItems.add(partialItem);
-                        simulatedInventory.merge(sig, (long) partialItem.getAmount(), (a, b) -> a + b);
-                    }
-                }
-                break;
+                continue;
             }
-        }
 
+            int maxStackSize = item.getMaxStackSize();
+            long currentAmount = simulatedInventory.getOrDefault(signature, 0L);
+            int remainingSlots = maxSlots - calculateSlots(simulatedInventory);
+            if (remainingSlots > 0) {
+                long maxAddAmount = (long) remainingSlots * maxStackSize - (currentAmount % maxStackSize);
+                if (maxAddAmount > 0) {
+                    ItemStack partialItem = item.clone();
+                    partialItem.setAmount((int) Math.min(maxAddAmount, item.getAmount()));
+                    acceptedItems.add(partialItem);
+                }
+            }
+            break;
+        }
         return acceptedItems;
     }
 
@@ -283,307 +272,276 @@ public class SpawnerLootGenerator {
         }
         for (ItemStack item : items) {
             if (item == null || item.getAmount() <= 0) continue;
-            ItemSignature sig = VirtualInventory.getSignature(item);
-            simulatedItems.merge(sig, (long) item.getAmount(), (a, b) -> a + b);
+            ItemSignature signature = VirtualInventory.getSignature(item);
+            simulatedItems.merge(signature, (long) item.getAmount(), Long::sum);
         }
         return calculateSlots(simulatedItems);
     }
 
-    /**
-     * Removal / stale-instance guard shared by both loot-commit paths. Checks BOTH removal systems
-     * (S2B {@link SpawnerData#isRemovalPending()} and the ordinary/API/physical
-     * {@link SpawnerRemovalService#isRemovalPending(SpawnerData)}) plus exact-instance identity by
-     * ID and location. Callers must hold the shared location lock so this check-then-act cannot
-     * race with a concurrent detach.
-     *
-     * @return true when the batch must NOT be routed or committed
-     */
     private boolean isStaleOrRemoving(SpawnerData spawner) {
-        if (spawner == null || spawner.isRemovalPending()) {
-            return true;
-        }
+        if (spawner == null || spawner.isRemovalPending()) return true;
         SpawnerRemovalService removalService = plugin.getSpawnerRemovalService();
-        if (removalService != null && removalService.isRemovalPending(spawner)) {
-            return true;
-        }
-        if (spawnerManager.getSpawnerById(spawner.getSpawnerId()) != spawner) {
-            return true;
-        }
-        Location loc = spawner.getSpawnerLocation();
-        if (loc == null) {
-            return true;
-        }
-        return spawnerManager.getSpawnerByLocation(loc) != spawner;
+        if (removalService != null && removalService.isRemovalPending(spawner)) return true;
+        if (spawnerManager.getSpawnerById(spawner.getSpawnerId()) != spawner) return true;
+        Location location = spawner.getSpawnerLocation();
+        return location == null || spawnerManager.getSpawnerByLocation(location) != spawner;
     }
 
-    /**
-     * Strict handoff-drain guard. Callers must hold the shared location lock for {@code expectedLoc}.
-     */
     private boolean isCurrentExactInstance(SpawnerData spawner, String expectedId, Location expectedLoc) {
         if (spawner == null || expectedId == null || expectedLoc == null || spawner.isRemovalPending()) {
             return false;
         }
         SpawnerRemovalService removalService = plugin.getSpawnerRemovalService();
-        if (removalService != null && removalService.isRemovalPending(spawner)) {
-            return false;
-        }
-        if (!expectedId.equals(spawner.getSpawnerId())) {
-            return false;
-        }
-        if (spawner.getSpawnerLocation() != expectedLoc) {
-            return false;
-        }
-        return spawnerManager.getSpawnerById(expectedId) == spawner
+        if (removalService != null && removalService.isRemovalPending(spawner)) return false;
+        return expectedId.equals(spawner.getSpawnerId())
+                && spawner.getSpawnerLocation() == expectedLoc
+                && spawnerManager.getSpawnerById(expectedId) == spawner
                 && spawnerManager.getSpawnerByLocation(expectedLoc) == spawner;
     }
 
+    private boolean isLifecycleCurrent(SpawnerData spawner, long expectedEpoch) {
+        return !shuttingDown.get()
+                && plugin.isEnabled()
+                && spawner != null
+                && spawner.isGeneratedOutputEpoch(expectedEpoch)
+                && Boolean.TRUE.equals(spawner.getSpawnerActive())
+                && !spawner.getSpawnerStop().get();
+    }
+
     /**
-     * Single, race-safe commit used by BOTH loot paths.
-     *
-     * <p>Must be called on the spawner's location execution context while holding the loot
-     * generation lock. Full, non-blocking acquisition order:
-     * <pre>
-     *   lootGenerationLock (held by caller)
-     *   -&gt; shared location lock  (SpawnerLocationLockManager)
-     *   -&gt; dataLock
-     *   -&gt; inventoryLock (when an item batch is possible)
-     *   -&gt; router invocation / route-completed recovery point
-     *   -&gt; XP / item / timer commit
-     * </pre>
-     * All four acquisition points are non-blocking {@code tryLock}. If any is unavailable, no
-     * router runs and no state is mutated, making the status safe to retry.
-     *
-     * <p>Routing is computed before XP/item/timer mutation. Once routing or another irreversible
-     * side effect has happened, the original pending claim is never released; failures replace it
-     * with only the still-uncommitted recovery batch, preserving route-completed items so routers
-     * are not invoked twice for the same generated output.
-     *
-     * <p>The shared location lock serializes this entire commit against Skyllia cleanup and
-     * ordinary/API/physical removal, preventing the spawner from being detached mid-commit.
+     * Lock order: lootGenerationLock (caller) -> location -> generatedOutput -> data -> inventory.
+     * generatedOutputLock remains held across router invocation and state commit so lifecycle reset
+     * cannot clear state midway through an external routing pass.
      */
     private CommitStatus commitGeneratedLoot(SpawnerData spawner, List<ItemStack> generatedItems,
-                                             long experience, long spawnTime, boolean ownsGeneratedBatchForRetry) {
-        Location loc = spawner.getSpawnerLocation();
-        if (loc == null) {
-            spawner.resetGeneratedLootState();
+                                             long experience, long spawnTime,
+                                             boolean ownsGeneratedBatchForRetry,
+                                             long expectedEpoch) {
+        if (shuttingDown.get() || !plugin.isEnabled()) {
+            return CommitStatus.ABORTED_STALE;
+        }
+        Location location = spawner.getSpawnerLocation();
+        if (location == null) {
             return CommitStatus.ABORTED_STALE;
         }
 
         SpawnerLocationLockManager lockManager = plugin.getSpawnerLocationLockManager();
-        if (lockManager == null || !lockManager.tryLock(loc)) {
+        if (lockManager == null || !lockManager.tryLock(location)) {
             return CommitStatus.LOCK_UNAVAILABLE;
         }
+
+        boolean outputHeld = false;
+        boolean dataHeld = false;
+        boolean inventoryHeld = false;
         SpawnerData.PendingCommitClaim pendingClaim = null;
         try {
-            // Removal / stale-instance safety under the shared lock.
+            if (!spawner.getGeneratedOutputLock().tryLock()) {
+                return CommitStatus.LOCK_UNAVAILABLE;
+            }
+            outputHeld = true;
+
+            if (!spawner.isGeneratedOutputEpoch(expectedEpoch)) {
+                return CommitStatus.ABORTED_STALE;
+            }
+            if (!Boolean.TRUE.equals(spawner.getSpawnerActive()) || spawner.getSpawnerStop().get()) {
+                spawner.resetGeneratedLootState();
+                return CommitStatus.ABORTED_STALE;
+            }
             if (isStaleOrRemoving(spawner)) {
                 spawner.resetGeneratedLootState();
                 return CommitStatus.ABORTED_STALE;
             }
 
-            // dataLock acquired before any router runs so lastSpawnTime always commits exactly once.
             if (!spawner.getDataLock().tryLock()) {
                 return CommitStatus.LOCK_UNAVAILABLE;
             }
-            boolean inventoryHeld = false;
-            try {
-                // Non-blocking inventory claim before router invocation when an item batch is possible.
-                // hasPendingCommitBatch() peeks without taking; taking happens after all locks held.
-                boolean itemsPossible = (generatedItems != null && !generatedItems.isEmpty())
-                        || spawner.hasPendingCommitBatch();
-                if (itemsPossible) {
-                    if (!spawner.getInventoryLock().tryLock()) {
-                        return CommitStatus.LOCK_UNAVAILABLE; // nothing mutated or taken yet
-                    }
-                    inventoryHeld = true;
+            dataHeld = true;
+
+            // Claim first, then decide whether inventoryLock is required from the exact claim.
+            // New batches queued after this claim wait for a later commit and cannot cross the lock decision.
+            pendingClaim = spawner.claimPendingCommitBatches();
+            boolean itemsPossible = generatedItems != null && !generatedItems.isEmpty();
+            if (pendingClaim != null && pendingClaim.hasItemOutput()) {
+                itemsPossible = true;
+            }
+            if (itemsPossible) {
+                if (!spawner.getInventoryLock().tryLock()) {
+                    spawner.releasePendingCommitClaim(pendingClaim);
+                    pendingClaim = null;
+                    return CommitStatus.LOCK_UNAVAILABLE;
                 }
-
-                // Claim any requeued pre-generated batches and merge them with fresh loot. The
-                // pending entries remain in SpawnerData until this commit returns COMMITTED.
-                pendingClaim = spawner.claimPendingCommitBatches();
-                SpawnerData.PendingCommitClaim claim = pendingClaim;
-                final boolean[] sellValueRefreshNeeded = {false};
-                LootCommitTransaction.Result result = LootCommitTransaction.execute(new LootCommitTransaction.Context() {
-                    @Override
-                    public LootCommitTransaction.PendingInput pendingInput() {
-                        if (claim == null) {
-                            return LootCommitTransaction.PendingInput.none();
-                        }
-                        return new LootCommitTransaction.PendingInput(
-                                true,
-                                claim.getUnroutedItems(),
-                                claim.getRouteCompletedItems(),
-                                claim.getExperience());
-                    }
-
-                    @Override
-                    public List<ItemStack> generatedItems() {
-                        return generatedItems;
-                    }
-
-                    @Override
-                    public long generatedExperience() {
-                        return experience;
-                    }
-
-                    @Override
-                    public boolean ownsGeneratedBatchForRetry() {
-                        return ownsGeneratedBatchForRetry;
-                    }
-
-                    @Override
-                    public long spawnTime() {
-                        return spawnTime;
-                    }
-
-                    @Override
-                    public boolean hasActiveRouters() {
-                        return outputRoutingService != null && outputRoutingService.hasActiveRouters();
-                    }
-
-                    @Override
-                    public SpawnerOutputRoutingService.RoutingOutcome route(List<ItemStack> items) {
-                        return outputRoutingService.route(spawner, items);
-                    }
-
-                    @Override
-                    public long currentExperience() {
-                        return spawner.getSpawnerExp();
-                    }
-
-                    @Override
-                    public long maxStoredExperience() {
-                        return spawner.getMaxStoredExp();
-                    }
-
-                    @Override
-                    public void commitExperience(long experience, Runnable pointOfNoReturn) {
-                        spawner.setSpawnerExpData(experience);
-                        pointOfNoReturn.run();
-                    }
-
-                    @Override
-                    public int usedSlots() {
-                        return spawner.getVirtualInventory().getUsedSlots();
-                    }
-
-                    @Override
-                    public int maxSlots() {
-                        return spawner.getMaxSpawnerLootSlots();
-                    }
-
-                    @Override
-                    public int requiredSlots(List<ItemStack> items) {
-                        return calculateRequiredSlots(items, spawner.getVirtualInventory());
-                    }
-
-                    @Override
-                    public List<ItemStack> limitToAvailableSlots(List<ItemStack> items) {
-                        return limitItemsToAvailableSlots(new ArrayList<>(items), spawner);
-                    }
-
-                    @Override
-                    public void insertItems(List<ItemStack> items, Runnable pointOfNoReturn) {
-                        // Caller already holds inventoryLock; source-of-truth insertion is
-                        // separated from fallible sell-value/cache refresh work so the inventory
-                        // point of no return is explicit.
-                        spawner.addItemsToVirtualInventoryWhileLocked(items);
-                        sellValueRefreshNeeded[0] = true;
-                        pointOfNoReturn.run();
-                    }
-
-                    @Override
-                    public void setLastSpawnTime(long spawnTime) {
-                        spawner.setLastSpawnTime(spawnTime);
-                    }
-
-                    @Override
-                    public void acknowledgePending() {
-                        spawner.ackPendingCommitClaim(claim);
-                    }
-
-                    @Override
-                    public void releasePending() {
-                        spawner.releasePendingCommitClaim(claim);
-                    }
-
-                    @Override
-                    public void replacePendingWithUnrouted(List<ItemStack> items, long experience) {
-                        spawner.replacePendingCommitClaim(claim, items, experience, false);
-                    }
-
-                    @Override
-                    public void replacePendingWithRouteCompleted(List<ItemStack> items, long experience) {
-                        spawner.replacePendingCommitClaim(claim, items, experience, true);
-                    }
-
-                    @Override
-                    public void queueUnrouted(List<ItemStack> items, long experience) {
-                        spawner.queuePendingCommitBatch(items, experience);
-                    }
-
-                    @Override
-                    public void queueRouteCompleted(List<ItemStack> items, long experience) {
-                        spawner.queueRouteCompletedPendingCommitBatch(items, experience);
-                    }
-
-                    @Override
-                    public void afterCommitted() {
-                        if (sellValueRefreshNeeded[0]) {
-                            runPostCommitStep(spawner, "sell-value refresh", spawner::recalculateSellValue);
-                        }
-                        runPostCommitStep(spawner, "capacity refresh", spawner::updateCapacityStatus);
-                        runPostCommitStep(spawner, "XP cache invalidation", () -> invalidateSpawnerCaches(spawner));
-                        runPostCommitStep(spawner, "GUI/hologram update", () -> handleGuiUpdates(spawner));
-                        runPostCommitStep(spawner, "persistence dirty marking",
-                                () -> spawnerManager.markSpawnerModified(spawner.getSpawnerId()));
-                    }
-
-                    @Override
-                    public void handlePostCommitFailure(Throwable throwable) {
-                        plugin.getLogger().warning("Post-commit output update failed for spawner "
-                                + spawner.getSpawnerId() + ": " + throwable.getMessage());
-                    }
-                });
-                if (result == LootCommitTransaction.Result.NOOP) {
-                    return CommitStatus.NOOP;
-                }
-            } finally {
-                if (inventoryHeld) spawner.getInventoryLock().unlock();
-                spawner.getDataLock().unlock();
+                inventoryHeld = true;
             }
 
-            return CommitStatus.COMMITTED;
+            final SpawnerData.PendingCommitClaim claim = pendingClaim;
+            final boolean[] sellValueRefreshNeeded = {false};
+            LootCommitTransaction.Result result = LootCommitTransaction.execute(new LootCommitTransaction.Context() {
+                @Override
+                public LootCommitTransaction.PendingInput pendingInput() {
+                    if (claim == null) return LootCommitTransaction.PendingInput.none();
+                    return new LootCommitTransaction.PendingInput(
+                            true,
+                            claim.getUnroutedItems(),
+                            claim.getRouteCompletedItems(),
+                            claim.getExperience());
+                }
+
+                @Override
+                public List<ItemStack> generatedItems() {
+                    return generatedItems;
+                }
+
+                @Override
+                public long generatedExperience() {
+                    return experience;
+                }
+
+                @Override
+                public boolean ownsGeneratedBatchForRetry() {
+                    return ownsGeneratedBatchForRetry;
+                }
+
+                @Override
+                public long spawnTime() {
+                    return spawnTime;
+                }
+
+                @Override
+                public boolean hasActiveRouters() {
+                    return outputRoutingService != null && outputRoutingService.hasActiveRouters();
+                }
+
+                @Override
+                public SpawnerOutputRoutingService.RoutingOutcome route(List<ItemStack> items) {
+                    return outputRoutingService.route(spawner, items);
+                }
+
+                @Override
+                public long currentExperience() {
+                    return spawner.getSpawnerExp();
+                }
+
+                @Override
+                public long maxStoredExperience() {
+                    return spawner.getMaxStoredExp();
+                }
+
+                @Override
+                public void commitExperience(long value, Runnable pointOfNoReturn) {
+                    spawner.setSpawnerExpData(value);
+                    pointOfNoReturn.run();
+                }
+
+                @Override
+                public int usedSlots() {
+                    return spawner.getVirtualInventory().getUsedSlots();
+                }
+
+                @Override
+                public int maxSlots() {
+                    return spawner.getMaxSpawnerLootSlots();
+                }
+
+                @Override
+                public int requiredSlots(List<ItemStack> items) {
+                    return calculateRequiredSlots(items, spawner.getVirtualInventory());
+                }
+
+                @Override
+                public List<ItemStack> limitToAvailableSlots(List<ItemStack> items) {
+                    return limitItemsToAvailableSlots(new ArrayList<>(items), spawner);
+                }
+
+                @Override
+                public void insertItems(List<ItemStack> items, Runnable pointOfNoReturn) {
+                    spawner.addItemsToVirtualInventoryWhileLocked(items);
+                    sellValueRefreshNeeded[0] = true;
+                    pointOfNoReturn.run();
+                }
+
+                @Override
+                public void setLastSpawnTime(long value) {
+                    spawner.setLastSpawnTime(value);
+                }
+
+                @Override
+                public void acknowledgePending() {
+                    spawner.ackPendingCommitClaim(claim);
+                }
+
+                @Override
+                public void releasePending() {
+                    spawner.releasePendingCommitClaim(claim);
+                }
+
+                @Override
+                public void replacePendingWithUnrouted(List<ItemStack> items, long xp) {
+                    spawner.replacePendingCommitClaim(claim, items, xp, false);
+                }
+
+                @Override
+                public void replacePendingWithRouteCompleted(List<ItemStack> items, long xp) {
+                    spawner.replacePendingCommitClaim(claim, items, xp, true);
+                }
+
+                @Override
+                public void queueUnrouted(List<ItemStack> items, long xp) {
+                    spawner.queuePendingCommitBatch(items, xp);
+                }
+
+                @Override
+                public void queueRouteCompleted(List<ItemStack> items, long xp) {
+                    spawner.queueRouteCompletedPendingCommitBatch(items, xp);
+                }
+
+                @Override
+                public void afterCommitted() {
+                    if (sellValueRefreshNeeded[0]) {
+                        runPostCommitStep(spawner, "sell-value refresh", spawner::recalculateSellValue);
+                    }
+                    runPostCommitStep(spawner, "capacity refresh", spawner::updateCapacityStatus);
+                    runPostCommitStep(spawner, "XP cache invalidation", () -> invalidateSpawnerCaches(spawner));
+                    runPostCommitStep(spawner, "GUI/hologram update", () -> handleGuiUpdates(spawner));
+                    runPostCommitStep(spawner, "persistence dirty marking",
+                            () -> spawnerManager.markSpawnerModified(spawner.getSpawnerId()));
+                }
+
+                @Override
+                public void handlePostCommitFailure(Throwable throwable) {
+                    plugin.getLogger().warning("Post-commit output update failed for spawner "
+                            + spawner.getSpawnerId() + ": " + throwable.getMessage());
+                }
+            });
+            return result == LootCommitTransaction.Result.NOOP ? CommitStatus.NOOP : CommitStatus.COMMITTED;
         } finally {
-            // Never call removeLock() from the generation path; the periodic cleanup task
-            // reclaims unused locks so a second lock object can never be created for the location.
-            lockManager.unlock(loc);
+            // Idempotent exact-ID release is a final safety net for setup or recovery failures.
+            if (pendingClaim != null) {
+                spawner.releasePendingCommitClaim(pendingClaim);
+            }
+            if (inventoryHeld) spawner.getInventoryLock().unlock();
+            if (dataHeld) spawner.getDataLock().unlock();
+            if (outputHeld) spawner.getGeneratedOutputLock().unlock();
+            lockManager.unlock(location);
         }
     }
 
-    /**
-     * Saturating addition that returns {@link Long#MAX_VALUE} instead of overflowing.
-     */
     private static long saturatedAdd(long a, long b) {
         long result = a + b;
-        // If a and b have the same sign and result has a different sign, overflow occurred.
-        if (((a ^ result) & (b ^ result)) < 0) return Long.MAX_VALUE;
-        return result;
+        return ((a ^ result) & (b ^ result)) < 0 ? Long.MAX_VALUE : result;
     }
 
     private void handleGuiUpdates(SpawnerData spawner) {
         spawnerGuiViewManager.updateSpawnerMenuViewers(spawner);
-
         if (Config.get().isSpawnerGenerateLootParticlesEnabled()) {
-            Location loc = spawner.getSpawnerLocation();
-            World world = loc.getWorld();
+            Location location = spawner.getSpawnerLocation();
+            World world = location != null ? location.getWorld() : null;
             if (world != null) {
-                Scheduler.runLocationTask(loc, () -> world.spawnParticle(Particle.HAPPY_VILLAGER,
-                        loc.clone().add(0.5, 0.5, 0.5),
+                Scheduler.runLocationTask(location, () -> world.spawnParticle(
+                        Particle.HAPPY_VILLAGER,
+                        location.clone().add(0.5, 0.5, 0.5),
                         10, 0.3, 0.3, 0.3, 0));
             }
         }
-
         if (plugin.getConfig().getBoolean("hologram.enabled", false)) {
             spawner.updateHologramData();
         }
@@ -608,20 +566,26 @@ public class SpawnerLootGenerator {
     }
 
     public void preGenerateLoot(SpawnerData spawner, LootGenerationCallback callback) {
-        if (!spawner.getLootGenerationLock().tryLock()) {
-            callback.onLootGenerated(Collections.emptyList(), 0);
+        if (spawner == null || callback == null || shuttingDown.get()) {
+            if (callback != null) callback.onLootGenerated(Collections.emptyList(), 0L);
+            return;
+        }
+        final long generationEpoch = spawner.getGeneratedOutputEpoch();
+        if (!isLifecycleCurrent(spawner, generationEpoch)
+                || !spawner.getLootGenerationLock().tryLock()) {
+            callback.onLootGenerated(Collections.emptyList(), 0L);
             return;
         }
 
         try {
             try {
                 if (!spawner.getDataLock().tryLock(50, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                    callback.onLootGenerated(Collections.emptyList(), 0);
+                    callback.onLootGenerated(Collections.emptyList(), 0L);
                     return;
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                callback.onLootGenerated(Collections.emptyList(), 0);
+                callback.onLootGenerated(Collections.emptyList(), 0L);
                 return;
             }
 
@@ -629,18 +593,19 @@ public class SpawnerLootGenerator {
             final int maxMobs;
             final boolean itemStorageFull;
             final boolean routersActive = outputRoutingService != null && outputRoutingService.hasActiveRouters();
-
             try {
+                if (!isLifecycleCurrent(spawner, generationEpoch)) {
+                    callback.onLootGenerated(Collections.emptyList(), 0L);
+                    return;
+                }
                 int usedSlots = spawner.getVirtualInventory().getUsedSlots();
                 int maxSlots = spawner.getMaxSpawnerLootSlots();
                 itemStorageFull = usedSlots >= maxSlots;
                 boolean atCapacity = itemStorageFull && spawner.getSpawnerExp() >= spawner.getMaxStoredExp();
-
                 if (atCapacity && !routersActive) {
-                    callback.onLootGenerated(Collections.emptyList(), 0);
+                    callback.onLootGenerated(Collections.emptyList(), 0L);
                     return;
                 }
-
                 minMobs = spawner.getMinMobs();
                 maxMobs = spawner.getMaxMobs();
             } finally {
@@ -648,17 +613,20 @@ public class SpawnerLootGenerator {
             }
 
             Scheduler.runTaskAsync(() -> {
-                LootResult loot;
-                if (itemStorageFull && !routersActive) {
-                    loot = generateExperienceOnlyLoot(minMobs, maxMobs, spawner);
-                } else {
-                    loot = generateLoot(minMobs, maxMobs, spawner);
+                if (!isLifecycleCurrent(spawner, generationEpoch)) {
+                    callback.onLootGenerated(Collections.emptyList(), 0L);
+                    return;
                 }
-
+                LootResult loot = itemStorageFull && !routersActive
+                        ? generateExperienceOnlyLoot(minMobs, maxMobs, spawner)
+                        : generateLoot(minMobs, maxMobs, spawner);
+                if (!isLifecycleCurrent(spawner, generationEpoch)) {
+                    callback.onLootGenerated(Collections.emptyList(), 0L);
+                    return;
+                }
                 callback.onLootGenerated(
                         loot.items() != null ? new ArrayList<>(loot.items()) : Collections.emptyList(),
-                        loot.experience()
-                );
+                        loot.experience());
             });
         } finally {
             spawner.getLootGenerationLock().unlock();
@@ -667,116 +635,86 @@ public class SpawnerLootGenerator {
 
     private LootResult generateExperienceOnlyLoot(int minMobs, int maxMobs, SpawnerData spawner) {
         int mobCount = ThreadLocalRandom.current().nextInt(maxMobs - minMobs + 1) + minMobs;
-        long totalExperienceLong = (long) spawner.getEntityExperienceValue() * mobCount;
-        long totalExperience = Math.min(totalExperienceLong, Long.MAX_VALUE);
+        long totalExperience = (long) spawner.getEntityExperienceValue() * mobCount;
         return new LootResult(Collections.emptyList(), totalExperience);
     }
 
     public void addPreGeneratedLoot(SpawnerData spawner, List<ItemStack> items, long experience) {
-        addPreGeneratedLoot(spawner, items, experience, System.currentTimeMillis());
+        if (spawner == null) return;
+        addPreGeneratedLoot(
+                spawner, items, experience, System.currentTimeMillis(), spawner.getGeneratedOutputEpoch());
     }
 
-    /**
-     * Adds pre-generated loot to spawner with custom spawn time.
-     *
-     * <p><b>Thread safety:</b> routing and all final state mutation run on the spawner's valid
-     * location execution context under the loot generation lock and the shared location lock,
-     * identical to the normal path. A transient lock failure retries the SAME owned clones in a
-     * bounded, non-blocking manner. On retry exhaustion (all locks busy for the full budget), the
-     * batch is requeued into the spawner's pending-commit holder and flushed by the next generation
-     * commit via a single managed handoff drain, so the already-cleared batch is neither lost nor
-     * routed twice.
-     */
-    public void addPreGeneratedLoot(SpawnerData spawner, List<ItemStack> items, long experience, long spawnTime) {
-        if (shuttingDown.get()) {
+    public void addPreGeneratedLoot(SpawnerData spawner, List<ItemStack> items,
+                                    long experience, long spawnTime) {
+        if (spawner == null) return;
+        addPreGeneratedLoot(spawner, items, experience, spawnTime, spawner.getGeneratedOutputEpoch());
+    }
+
+    public void addPreGeneratedLoot(SpawnerData spawner, List<ItemStack> items, long experience,
+                                    long spawnTime, long generationEpoch) {
+        if (!isLifecycleCurrent(spawner, generationEpoch)
+                || ((items == null || items.isEmpty()) && experience == 0L)) {
             return;
         }
-        if ((items == null || items.isEmpty()) && experience == 0) {
-            return;
-        }
+        Location location = spawner.getSpawnerLocation();
+        if (location == null) return;
 
-        Location spawnerLocation = spawner.getSpawnerLocation();
-        if (spawnerLocation == null) {
-            return;
-        }
-
-        // Build owned deep clones once; the same batch is reused across all retries.
-        List<ItemStack> ownedItems = new ArrayList<>();
-        if (items != null) {
-            for (ItemStack item : items) {
-                if (item != null && item.getType() != Material.AIR) {
-                    ownedItems.add(item.clone());
-                }
-            }
-        }
-
-        schedulePreGeneratedCommit(spawner, ownedItems, experience, spawnTime, 0);
+        List<ItemStack> ownedItems = deepCloneItems(items);
+        schedulePreGeneratedCommit(spawner, ownedItems, experience, spawnTime, generationEpoch, 0);
     }
 
     private void schedulePreGeneratedCommit(SpawnerData spawner, List<ItemStack> ownedItems,
-                                             long experience, long spawnTime, int attempt) {
-        if (shuttingDown.get()) {
-            return;
-        }
-        Location loc = spawner.getSpawnerLocation();
-        if (loc == null) {
-            return;
-        }
-        Scheduler.runLocationTask(loc, () -> {
-            if (shuttingDown.get()) {
-                return;
-            }
+                                             long experience, long spawnTime,
+                                             long generationEpoch, int attempt) {
+        if (!isLifecycleCurrent(spawner, generationEpoch)) return;
+        Location location = spawner.getSpawnerLocation();
+        if (location == null) return;
+
+        Scheduler.runLocationTask(location, () -> {
+            if (!isLifecycleCurrent(spawner, generationEpoch)) return;
             if (!spawner.getLootGenerationLock().tryLock()) {
-                retryPreGeneratedCommit(spawner, ownedItems, experience, spawnTime, attempt);
+                retryPreGeneratedCommit(
+                        spawner, ownedItems, experience, spawnTime, generationEpoch, attempt);
                 return;
             }
             CommitStatus status;
             try {
-                status = commitGeneratedLoot(spawner, ownedItems, experience, spawnTime, true);
+                status = commitGeneratedLoot(
+                        spawner, ownedItems, experience, spawnTime, true, generationEpoch);
             } finally {
                 spawner.getLootGenerationLock().unlock();
             }
-            // Retry ONLY on transient lock failure (no router was invoked in that case), reusing
-            // the same owned clones. COMMITTED / NOOP / ABORTED_STALE must never be retried,
-            // preventing any double-routing and avoiding tight retry loops.
             if (status == CommitStatus.LOCK_UNAVAILABLE) {
-                retryPreGeneratedCommit(spawner, ownedItems, experience, spawnTime, attempt);
+                retryPreGeneratedCommit(
+                        spawner, ownedItems, experience, spawnTime, generationEpoch, attempt);
             }
         });
     }
 
     private void retryPreGeneratedCommit(SpawnerData spawner, List<ItemStack> ownedItems,
-                                          long experience, long spawnTime, int attempt) {
-        if (shuttingDown.get()) {
-            return;
-        }
+                                          long experience, long spawnTime,
+                                          long generationEpoch, int attempt) {
+        if (!isLifecycleCurrent(spawner, generationEpoch)) return;
         if (attempt + 1 >= PREGEN_MAX_COMMIT_ATTEMPTS) {
-            // Retry budget exhausted. Never silently discard the already-cleared batch:
-            // merge the SAME owned clones into the generator-owned handoff queue. A single
-            // periodic drain will later claim the location lock, re-check exact identity/removal
-            // state, and only then queue the batch into SpawnerData pending commit state.
-            queuePendingHandoff(spawner, ownedItems, experience);
+            queuePendingHandoff(spawner, ownedItems, experience, generationEpoch);
             return;
         }
+
         final Scheduler.Task[] taskRef = new Scheduler.Task[1];
         Scheduler.Task task = Scheduler.runTaskLaterAsync(() -> {
-            Scheduler.Task taskToRemove = taskRef[0];
-            if (taskToRemove != null) {
-                pendingRetryTasks.remove(taskToRemove);
-            }
-            if (shuttingDown.get()) {
-                return;
-            }
-            schedulePreGeneratedCommit(spawner, ownedItems, experience, spawnTime, attempt + 1);
+            Scheduler.Task tracked = taskRef[0];
+            if (tracked != null) pendingRetryTasks.remove(tracked);
+            if (!isLifecycleCurrent(spawner, generationEpoch)) return;
+            schedulePreGeneratedCommit(
+                    spawner, ownedItems, experience, spawnTime, generationEpoch, attempt + 1);
         }, PREGEN_RETRY_DELAY_TICKS);
         taskRef[0] = task;
         if (shuttingDown.get()) {
             task.cancel();
         } else {
             pendingRetryTasks.add(task);
-            if (shuttingDown.get() && pendingRetryTasks.remove(task)) {
-                task.cancel();
-            }
+            if (shuttingDown.get() && pendingRetryTasks.remove(task)) task.cancel();
         }
     }
 
@@ -788,102 +726,79 @@ public class SpawnerLootGenerator {
         lastPreGenWarnById.put(id, now);
         plugin.getLogger().warning("Pre-generated loot for spawner " + id
                 + " could not commit after " + PREGEN_MAX_COMMIT_ATTEMPTS
-                + " attempts (locks busy); batch queued for pending handoff drain.");
+                + " attempts; batch queued for the pending handoff drain.");
     }
 
-    private void queuePendingHandoff(SpawnerData spawner, List<ItemStack> ownedItems, long experience) {
-        if (shuttingDown.get()) {
+    private void queuePendingHandoff(SpawnerData spawner, List<ItemStack> ownedItems,
+                                     long experience, long generationEpoch) {
+        if (!isLifecycleCurrent(spawner, generationEpoch)
+                || ((ownedItems == null || ownedItems.isEmpty()) && experience <= 0L)) {
             return;
         }
-        if (spawner == null || ((ownedItems == null || ownedItems.isEmpty()) && experience <= 0L)) {
-            return;
-        }
-
         Location location = spawner.getSpawnerLocation();
-        if (location == null || location.getWorld() == null) {
-            return;
-        }
+        if (location == null || location.getWorld() == null) return;
 
-        HandoffKey key = new HandoffKey(spawner);
-        PendingHandoff handoff = new PendingHandoff(spawner, spawner.getSpawnerId(), location, ownedItems, experience);
+        HandoffKey key = new HandoffKey(spawner, generationEpoch);
+        PendingHandoff handoff = new PendingHandoff(
+                spawner, spawner.getSpawnerId(), location, ownedItems, experience, generationEpoch);
         synchronized (pendingHandoffLock) {
-            if (shuttingDown.get()) {
-                return;
-            }
+            if (!isLifecycleCurrent(spawner, generationEpoch)) return;
             pendingHandoffs.merge(key, handoff, PendingHandoff::merge);
         }
         warnPreGenRequeue(spawner);
     }
 
     private void drainPendingHandoffs() {
-        if (shuttingDown.get()) {
-            return;
-        }
-        if (pendingHandoffs.isEmpty()) {
-            return;
-        }
-
+        if (shuttingDown.get() || pendingHandoffs.isEmpty()) return;
         SpawnerLocationLockManager lockManager = plugin.getSpawnerLocationLockManager();
-        if (lockManager == null) {
-            return;
-        }
+        if (lockManager == null) return;
 
         for (Map.Entry<HandoffKey, PendingHandoff> entry : pendingHandoffs.entrySet()) {
-            if (shuttingDown.get()) {
-                return;
-            }
+            if (shuttingDown.get()) return;
             PendingHandoff handoff = entry.getValue();
             Location location = handoff.location;
             if (location == null || location.getWorld() == null) {
-                synchronized (pendingHandoffLock) {
-                    if (!shuttingDown.get()) {
-                        pendingHandoffs.remove(entry.getKey(), handoff);
-                    }
-                }
+                removeHandoff(entry.getKey(), handoff);
                 continue;
             }
+            if (!lockManager.tryLock(location)) continue;
 
-            if (!lockManager.tryLock(location)) {
-                continue;
-            }
-
+            boolean outputHeld = false;
             try {
-                if (shuttingDown.get()) {
-                    return;
-                }
-                if (!isCurrentExactInstance(handoff.spawner, handoff.spawnerId, location)) {
-                    synchronized (pendingHandoffLock) {
-                        if (!shuttingDown.get()) {
-                            pendingHandoffs.remove(entry.getKey(), handoff);
-                        }
-                    }
+                if (shuttingDown.get()) return;
+                if (!handoff.spawner.getGeneratedOutputLock().tryLock()) continue;
+                outputHeld = true;
+
+                if (!isLifecycleCurrent(handoff.spawner, handoff.generationEpoch)
+                        || !isCurrentExactInstance(handoff.spawner, handoff.spawnerId, location)) {
+                    removeHandoff(entry.getKey(), handoff);
                     continue;
                 }
 
                 synchronized (pendingHandoffLock) {
-                    if (!shuttingDown.get() && pendingHandoffs.remove(entry.getKey(), handoff)) {
+                    if (isLifecycleCurrent(handoff.spawner, handoff.generationEpoch)
+                            && pendingHandoffs.remove(entry.getKey(), handoff)) {
                         handoff.spawner.queuePendingCommitBatch(handoff.items, handoff.experience);
                     }
                 }
             } finally {
+                if (outputHeld) handoff.spawner.getGeneratedOutputLock().unlock();
                 lockManager.unlock(location);
             }
         }
     }
 
+    private void removeHandoff(HandoffKey key, PendingHandoff handoff) {
+        synchronized (pendingHandoffLock) {
+            pendingHandoffs.remove(key, handoff);
+        }
+    }
+
     public void shutdown() {
-        if (!shuttingDown.compareAndSet(false, true)) {
-            return;
-        }
-        if (pendingHandoffDrainTask != null) {
-            pendingHandoffDrainTask.cancel();
-        }
-
-        for (Scheduler.Task task : pendingRetryTasks) {
-            task.cancel();
-        }
+        if (!shuttingDown.compareAndSet(false, true)) return;
+        if (pendingHandoffDrainTask != null) pendingHandoffDrainTask.cancel();
+        for (Scheduler.Task task : pendingRetryTasks) task.cancel();
         pendingRetryTasks.clear();
-
         synchronized (pendingHandoffLock) {
             int unresolved = pendingHandoffs.size();
             if (unresolved > 0) {
@@ -909,16 +824,20 @@ public class SpawnerLootGenerator {
 
     private static final class HandoffKey {
         private final SpawnerData spawner;
+        private final long generationEpoch;
         private final int identityHash;
 
-        private HandoffKey(SpawnerData spawner) {
+        private HandoffKey(SpawnerData spawner, long generationEpoch) {
             this.spawner = spawner;
-            this.identityHash = System.identityHashCode(spawner);
+            this.generationEpoch = generationEpoch;
+            this.identityHash = 31 * System.identityHashCode(spawner) + Long.hashCode(generationEpoch);
         }
 
         @Override
         public boolean equals(Object obj) {
-            return obj instanceof HandoffKey other && spawner == other.spawner;
+            return obj instanceof HandoffKey other
+                    && spawner == other.spawner
+                    && generationEpoch == other.generationEpoch;
         }
 
         @Override
@@ -933,17 +852,22 @@ public class SpawnerLootGenerator {
         private final Location location;
         private final List<ItemStack> items;
         private final long experience;
+        private final long generationEpoch;
 
         private PendingHandoff(SpawnerData spawner, String spawnerId, Location location,
-                               List<ItemStack> items, long experience) {
+                               List<ItemStack> items, long experience, long generationEpoch) {
             this.spawner = spawner;
             this.spawnerId = spawnerId;
             this.location = location;
             this.items = Collections.unmodifiableList(deepCloneItems(items));
             this.experience = Math.max(0L, experience);
+            this.generationEpoch = generationEpoch;
         }
 
         private PendingHandoff merge(PendingHandoff other) {
+            if (spawner != other.spawner || generationEpoch != other.generationEpoch) {
+                throw new IllegalArgumentException("Cannot merge handoffs from different output lifecycles");
+            }
             List<ItemStack> mergedItems = new ArrayList<>(items.size() + other.items.size());
             mergedItems.addAll(deepCloneItems(items));
             mergedItems.addAll(deepCloneItems(other.items));
@@ -952,7 +876,8 @@ public class SpawnerLootGenerator {
                     spawnerId,
                     location,
                     mergedItems,
-                    saturatedAdd(experience, other.experience));
+                    saturatedAdd(experience, other.experience),
+                    generationEpoch);
         }
     }
 

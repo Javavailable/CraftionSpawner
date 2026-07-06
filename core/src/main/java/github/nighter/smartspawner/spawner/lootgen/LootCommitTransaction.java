@@ -5,6 +5,7 @@ import org.bukkit.inventory.ItemStack;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 final class LootCommitTransaction {
 
@@ -98,18 +99,38 @@ final class LootCommitTransaction {
     }
 
     static Result execute(Context context) {
-        PendingInput pending = context.pendingInput();
+        Objects.requireNonNull(context, "context");
+
+        PendingInput pending;
+        long effectiveExperience;
+        List<ItemStack> generatedInputItems;
+        long generatedInputExperience;
+        List<ItemStack> unroutedItems;
+        List<ItemStack> itemsForInternalCommit;
+
+        // Setup itself may clone plugin-owned ItemStacks. If that fails after SpawnerData has already
+        // claimed pending IDs, release the exact claim before propagating the original failure.
+        try {
+            pending = Objects.requireNonNull(context.pendingInput(), "pendingInput");
+            effectiveExperience = saturatedAdd(context.generatedExperience(), pending.experience());
+            generatedInputItems = deepCloneItems(context.generatedItems());
+            generatedInputExperience = Math.max(0L, context.generatedExperience());
+            unroutedItems = deepCloneItems(generatedInputItems);
+            unroutedItems.addAll(pending.unroutedItems());
+            itemsForInternalCommit = deepCloneItems(pending.routeCompletedItems());
+        } catch (Throwable setupFailure) {
+            try {
+                context.releasePending();
+            } catch (Throwable releaseFailure) {
+                setupFailure.addSuppressed(releaseFailure);
+            }
+            throw setupFailure;
+        }
+
         boolean pendingFinalized = false;
         boolean routeAttempted = false;
         boolean existingRouteCompletedInput = !pending.routeCompletedItems().isEmpty();
         CommitFlags flags = new CommitFlags();
-
-        long effectiveExperience = saturatedAdd(context.generatedExperience(), pending.experience());
-        List<ItemStack> generatedInputItems = deepCloneItems(context.generatedItems());
-        long generatedInputExperience = Math.max(0L, context.generatedExperience());
-        List<ItemStack> unroutedItems = deepCloneItems(generatedInputItems);
-        unroutedItems.addAll(pending.unroutedItems());
-        List<ItemStack> itemsForInternalCommit = deepCloneItems(pending.routeCompletedItems());
         boolean externallyConsumed = false;
 
         try {
@@ -117,12 +138,19 @@ final class LootCommitTransaction {
                 List<ItemStack> remainder = unroutedItems;
                 if (context.hasActiveRouters()) {
                     context.beforeRouter();
-                    SpawnerOutputRoutingService.RoutingOutcome outcome = context.route(unroutedItems);
-                    remainder = deepCloneItems(outcome.remaining());
-                    externallyConsumed = outcome.consumedAny();
+                    SpawnerOutputRoutingService.RoutingOutcome outcome =
+                            Objects.requireNonNull(context.route(unroutedItems), "routing outcome");
+                    // Capture the external point of no return before any further cloning or
+                    // validation can fail inside the transaction layer.
                     routeAttempted = outcome.attempted();
+                    externallyConsumed = outcome.consumedAny();
+                    // RoutingOutcome already owns the validated internal remainder. Copy only the
+                    // list container so no additional ItemStack.clone() failure can reopen the
+                    // post-router replay boundary.
+                    remainder = new ArrayList<>(
+                            Objects.requireNonNull(outcome.remaining(), "routing remainder"));
                 }
-                itemsForInternalCommit.addAll(deepCloneItems(remainder));
+                itemsForInternalCommit.addAll(remainder);
                 if (routeAttempted) {
                     context.afterRouter();
                 }
@@ -182,24 +210,32 @@ final class LootCommitTransaction {
 
             try {
                 context.afterCommitted();
-            } catch (Throwable t) {
-                context.handlePostCommitFailure(t);
+            } catch (Throwable postCommitFailure) {
+                try {
+                    context.handlePostCommitFailure(postCommitFailure);
+                } catch (Throwable handlerFailure) {
+                    postCommitFailure.addSuppressed(handlerFailure);
+                }
             }
 
             return Result.COMMITTED;
-        } catch (Throwable t) {
-            recoverPendingClaim(
-                    context,
-                    pending,
-                    pendingFinalized,
-                    routeAttempted,
-                    existingRouteCompletedInput,
-                    flags,
-                    generatedInputItems,
-                    generatedInputExperience,
-                    itemsForInternalCommit,
-                    effectiveExperience);
-            throw t;
+        } catch (Throwable failure) {
+            try {
+                recoverPendingClaim(
+                        context,
+                        pending,
+                        pendingFinalized,
+                        routeAttempted,
+                        existingRouteCompletedInput,
+                        flags,
+                        generatedInputItems,
+                        generatedInputExperience,
+                        itemsForInternalCommit,
+                        effectiveExperience);
+            } catch (Throwable recoveryFailure) {
+                failure.addSuppressed(recoveryFailure);
+            }
+            throw failure;
         }
     }
 

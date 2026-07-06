@@ -15,6 +15,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -34,6 +35,11 @@ public class SpawnerData {
     private final ReentrantLock lootGenerationLock = new ReentrantLock();  // For loot spawning
     @Getter
     private final ReentrantLock dataLock = new ReentrantLock();  // For metadata changes (exp, stack size, etc.)
+    // Serializes generated-output reset against router/commit work. It is acquired after the
+    // shared location lock and before dataLock on the commit path.
+    @Getter
+    private final ReentrantLock generatedOutputLock = new ReentrantLock();
+    private final AtomicLong generatedOutputEpoch = new AtomicLong(0L);
 
     // Atomic sell state – single CAS guard that replaces the old sellLock + double-lock pattern.
     // All operations that touch virtual inventory must check isSelling() before proceeding.
@@ -129,6 +135,7 @@ public class SpawnerData {
     // CRITICAL: Pre-generated loot storage for better UX - access must be synchronized via lootGenerationLock
     private volatile List<ItemStack> preGeneratedItems;
     private volatile long preGeneratedExperience;
+    private volatile long preGeneratedEpoch;
     private volatile boolean isPreGenerating;
 
     // Pending commit holder for pre-generated loot that could not be committed due to transient
@@ -866,7 +873,7 @@ public class SpawnerData {
         // CRITICAL: Acquire inventoryLock to ensure VirtualInventory remains source of truth
         inventoryLock.lock();
         try {
-            // Remove from VirtualInventory (source of truth) - atomic operation within lock
+            // Remove from VirtualInventory (source of truth) - atomic operation within the lock
             boolean removed = virtualInventory.removeItems(items);
 
             // Update sell value atomically if removal was successful
@@ -881,56 +888,145 @@ public class SpawnerData {
         }
     }
 
-    public synchronized void storePreGeneratedLoot(List<ItemStack> items, long experience) {
-        this.preGeneratedItems = items;
-        this.preGeneratedExperience = experience;
+    /** @return the lifecycle epoch for generated output owned by this exact spawner instance. */
+    public long getGeneratedOutputEpoch() {
+        return generatedOutputEpoch.get();
+    }
+
+    /** @return true only while {@code expectedEpoch} is still the current generated-output epoch. */
+    public boolean isGeneratedOutputEpoch(long expectedEpoch) {
+        return generatedOutputEpoch.get() == expectedEpoch;
+    }
+
+    /**
+     * Atomically starts one pre-generation operation for the current generated-output lifecycle.
+     *
+     * @return the owned lifecycle epoch, or {@code -1} when pre-generation/output is already pending
+     */
+    public long tryBeginPreGeneration() {
+        generatedOutputLock.lock();
+        try {
+            synchronized (this) {
+                if (isPreGenerating || (preGeneratedItems != null && !preGeneratedItems.isEmpty())
+                        || preGeneratedExperience > 0L) {
+                    return -1L;
+                }
+                long epoch = generatedOutputEpoch.get();
+                isPreGenerating = true;
+                preGeneratedEpoch = epoch;
+                return epoch;
+            }
+        } finally {
+            generatedOutputLock.unlock();
+        }
+    }
+
+    /** Finishes a pre-generation operation only if its lifecycle epoch is still current. */
+    public void finishPreGeneration(long expectedEpoch) {
+        generatedOutputLock.lock();
+        try {
+            if (!isGeneratedOutputEpoch(expectedEpoch)) {
+                return;
+            }
+            synchronized (this) {
+                if (preGeneratedEpoch == expectedEpoch) {
+                    isPreGenerating = false;
+                }
+            }
+        } finally {
+            generatedOutputLock.unlock();
+        }
+    }
+
+    public void storePreGeneratedLoot(List<ItemStack> items, long experience) {
+        storePreGeneratedLoot(items, experience, generatedOutputEpoch.get());
+    }
+
+    /** Stores one pre-generated batch only while its originating lifecycle remains current. */
+    public boolean storePreGeneratedLoot(List<ItemStack> items, long experience, long expectedEpoch) {
+        generatedOutputLock.lock();
+        try {
+            if (!isGeneratedOutputEpoch(expectedEpoch)) {
+                return false;
+            }
+            synchronized (this) {
+                preGeneratedItems = deepCloneItems(items);
+                preGeneratedExperience = Math.max(0L, experience);
+                preGeneratedEpoch = expectedEpoch;
+                return true;
+            }
+        } finally {
+            generatedOutputLock.unlock();
+        }
     }
 
     /**
      * Atomically claims and clears the currently pre-generated item+XP batch. Items and experience
-     * are taken together so a concurrent path can never split one pre-generation result across two
-     * commits.
+     * are taken together and retain the lifecycle epoch under which they were produced.
      *
      * @return the claimed batch, or null if no item/XP output was waiting
      */
-    public synchronized PreGeneratedLootBatch claimPreGeneratedLootBatch() {
-        PreGeneratedLootBatch batch = new PreGeneratedLootBatch(preGeneratedItems, preGeneratedExperience);
-        preGeneratedItems = null;
-        preGeneratedExperience = 0;
-        return batch.isEmpty() ? null : batch;
+    public PreGeneratedLootBatch claimPreGeneratedLootBatch() {
+        generatedOutputLock.lock();
+        try {
+            synchronized (this) {
+                PreGeneratedLootBatch batch = new PreGeneratedLootBatch(
+                        preGeneratedItems,
+                        preGeneratedExperience,
+                        false,
+                        preGeneratedEpoch);
+                preGeneratedItems = null;
+                preGeneratedExperience = 0L;
+                preGeneratedEpoch = generatedOutputEpoch.get();
+                return batch.isEmpty() ? null : batch;
+            }
+        } finally {
+            generatedOutputLock.unlock();
+        }
     }
 
     public synchronized boolean hasPreGeneratedLoot() {
-        return (preGeneratedItems != null && !preGeneratedItems.isEmpty()) || preGeneratedExperience > 0;
+        return (preGeneratedItems != null && !preGeneratedItems.isEmpty()) || preGeneratedExperience > 0L;
     }
 
+    /** Legacy compatibility setter; lifecycle-aware callers should use {@link #tryBeginPreGeneration()}. */
     public synchronized void setPreGenerating(boolean generating) {
-        this.isPreGenerating = generating;
+        isPreGenerating = generating;
+        if (generating) {
+            preGeneratedEpoch = generatedOutputEpoch.get();
+        }
     }
 
     public synchronized boolean isPreGenerating() {
         return isPreGenerating;
     }
 
-    public synchronized void clearPreGeneratedLoot() {
-        preGeneratedItems = null;
-        preGeneratedExperience = 0;
-        isPreGenerating = false;
+    public void clearPreGeneratedLoot() {
+        resetGeneratedLootState();
     }
 
     /**
-     * Clears all generated-output state that must not survive deactivation, unload, removal or
-     * stale-instance aborts: normal pre-generation, pending commit batches and in-flight claims.
+     * Invalidates and clears all generated-output state that must not survive deactivation, unload,
+     * removal or stale-instance aborts. The epoch prevents already-scheduled async callbacks and
+     * generator-owned handoffs from repopulating the cleared state afterwards.
      */
     public void resetGeneratedLootState() {
-        synchronized (this) {
-            preGeneratedItems = null;
-            preGeneratedExperience = 0;
-            isPreGenerating = false;
-        }
-        synchronized (pendingCommitLock) {
-            pendingCommitBatches.clear();
-            claimedPendingCommitBatchIds.clear();
+        generatedOutputLock.lock();
+        try {
+            long newEpoch = generatedOutputEpoch.updateAndGet(
+                    current -> current == Long.MAX_VALUE ? 0L : current + 1L);
+            synchronized (this) {
+                preGeneratedItems = null;
+                preGeneratedExperience = 0L;
+                preGeneratedEpoch = newEpoch;
+                isPreGenerating = false;
+            }
+            synchronized (pendingCommitLock) {
+                pendingCommitBatches.clear();
+                claimedPendingCommitBatchIds.clear();
+            }
+        } finally {
+            generatedOutputLock.unlock();
         }
     }
 
@@ -942,15 +1038,18 @@ public class SpawnerData {
         private final List<ItemStack> items;
         private final long experience;
         private final boolean routeCompleted;
+        private final long generationEpoch;
 
         PreGeneratedLootBatch(List<ItemStack> items, long experience) {
-            this(items, experience, false);
+            this(items, experience, false, 0L);
         }
 
-        private PreGeneratedLootBatch(List<ItemStack> items, long experience, boolean routeCompleted) {
+        private PreGeneratedLootBatch(List<ItemStack> items, long experience,
+                                      boolean routeCompleted, long generationEpoch) {
             this.items = Collections.unmodifiableList(deepCloneItems(items));
             this.experience = Math.max(0L, experience);
             this.routeCompleted = routeCompleted;
+            this.generationEpoch = generationEpoch;
         }
 
         public List<ItemStack> getItems() {
@@ -959,6 +1058,10 @@ public class SpawnerData {
 
         public long getExperience() {
             return experience;
+        }
+
+        public long getGenerationEpoch() {
+            return generationEpoch;
         }
 
         boolean isRouteCompleted() {
@@ -980,8 +1083,9 @@ public class SpawnerData {
         private final List<ItemStack> routeCompletedItems;
 
         private PendingCommitClaim(List<Long> batchIds, List<ItemStack> unroutedItems,
-                                   List<ItemStack> routeCompletedItems, long experience) {
-            super(combineItems(unroutedItems, routeCompletedItems), experience);
+                                   List<ItemStack> routeCompletedItems, long experience,
+                                   long generationEpoch) {
+            super(combineItems(unroutedItems, routeCompletedItems), experience, false, generationEpoch);
             this.batchIds = Collections.unmodifiableList(new ArrayList<>(batchIds));
             this.unroutedItems = Collections.unmodifiableList(deepCloneItems(unroutedItems));
             this.routeCompletedItems = Collections.unmodifiableList(deepCloneItems(routeCompletedItems));
@@ -997,6 +1101,10 @@ public class SpawnerData {
 
         public List<ItemStack> getRouteCompletedItems() {
             return deepCloneItems(routeCompletedItems);
+        }
+
+        public boolean hasItemOutput() {
+            return !unroutedItems.isEmpty() || !routeCompletedItems.isEmpty();
         }
     }
 
@@ -1018,12 +1126,21 @@ public class SpawnerData {
     }
 
     private void queuePendingCommitBatch(List<ItemStack> items, long experience, boolean routeCompleted) {
-        PreGeneratedLootBatch batch = new PreGeneratedLootBatch(items, experience, routeCompleted);
-        if (batch.isEmpty()) {
-            return;
-        }
-        synchronized (pendingCommitLock) {
-            pendingCommitBatches.put(nextPendingCommitBatchId(), batch);
+        generatedOutputLock.lock();
+        try {
+            long epoch = generatedOutputEpoch.get();
+            PreGeneratedLootBatch batch = new PreGeneratedLootBatch(
+                    items, experience, routeCompleted, epoch);
+            if (batch.isEmpty()) {
+                return;
+            }
+            synchronized (pendingCommitLock) {
+                // Reset also owns generatedOutputLock, so a stale callback cannot insert a batch
+                // after lifecycle cleanup has cleared the holder and advanced the epoch.
+                pendingCommitBatches.put(nextPendingCommitBatchId(), batch);
+            }
+        } finally {
+            generatedOutputLock.unlock();
         }
     }
 
@@ -1037,6 +1154,7 @@ public class SpawnerData {
                 return null;
             }
 
+            long epoch = generatedOutputEpoch.get();
             List<Long> claimedIds = new ArrayList<>();
             List<ItemStack> mergedUnroutedItems = new ArrayList<>();
             List<ItemStack> mergedRouteCompletedItems = new ArrayList<>();
@@ -1049,6 +1167,9 @@ public class SpawnerData {
                 }
 
                 PreGeneratedLootBatch batch = entry.getValue();
+                if (batch.getGenerationEpoch() != epoch) {
+                    continue;
+                }
                 claimedIds.add(batchId);
                 if (batch.isRouteCompleted()) {
                     mergedRouteCompletedItems.addAll(batch.getItems());
@@ -1062,12 +1183,16 @@ public class SpawnerData {
                 return null;
             }
 
-            claimedPendingCommitBatchIds.addAll(claimedIds);
-            return new PendingCommitClaim(
+            // Build every deep-cloned snapshot before marking IDs claimed. A clone/signature failure
+            // therefore cannot strand pending entries in an unreachable claimed state.
+            PendingCommitClaim claim = new PendingCommitClaim(
                     claimedIds,
                     mergedUnroutedItems,
                     mergedRouteCompletedItems,
-                    mergedExperience);
+                    mergedExperience,
+                    epoch);
+            claimedPendingCommitBatchIds.addAll(claimedIds);
+            return claim;
         }
     }
 
@@ -1117,7 +1242,8 @@ public class SpawnerData {
             return;
         }
 
-        PreGeneratedLootBatch replacement = new PreGeneratedLootBatch(items, experience, routeCompleted);
+        PreGeneratedLootBatch replacement = new PreGeneratedLootBatch(
+                items, experience, routeCompleted, generatedOutputEpoch.get());
         synchronized (pendingCommitLock) {
             for (Long batchId : claim.getBatchIds()) {
                 pendingCommitBatches.remove(batchId);
