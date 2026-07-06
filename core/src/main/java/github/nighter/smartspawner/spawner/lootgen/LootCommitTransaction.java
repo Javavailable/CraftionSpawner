@@ -33,6 +33,8 @@ final class LootCommitTransaction {
 
         long generatedExperience();
 
+        boolean ownsGeneratedBatchForRetry();
+
         long spawnTime();
 
         boolean hasActiveRouters();
@@ -43,7 +45,7 @@ final class LootCommitTransaction {
 
         long maxStoredExperience();
 
-        void setExperience(long experience);
+        void commitExperience(long experience, Runnable pointOfNoReturn);
 
         int usedSlots();
 
@@ -53,7 +55,7 @@ final class LootCommitTransaction {
 
         List<ItemStack> limitToAvailableSlots(List<ItemStack> items);
 
-        void insertItems(List<ItemStack> items);
+        void insertItems(List<ItemStack> items, Runnable pointOfNoReturn);
 
         void setLastSpawnTime(long spawnTime);
 
@@ -100,12 +102,12 @@ final class LootCommitTransaction {
         boolean pendingFinalized = false;
         boolean routeAttempted = false;
         boolean existingRouteCompletedInput = !pending.routeCompletedItems().isEmpty();
-        boolean xpCommitted = false;
-        boolean itemsInserted = false;
-        boolean timerAdvanced = false;
+        CommitFlags flags = new CommitFlags();
 
         long effectiveExperience = saturatedAdd(context.generatedExperience(), pending.experience());
-        List<ItemStack> unroutedItems = deepCloneItems(context.generatedItems());
+        List<ItemStack> generatedInputItems = deepCloneItems(context.generatedItems());
+        long generatedInputExperience = Math.max(0L, context.generatedExperience());
+        List<ItemStack> unroutedItems = deepCloneItems(generatedInputItems);
         unroutedItems.addAll(pending.unroutedItems());
         List<ItemStack> itemsForInternalCommit = deepCloneItems(pending.routeCompletedItems());
         boolean externallyConsumed = false;
@@ -133,8 +135,10 @@ final class LootCommitTransaction {
                 long newExp = Math.min(saturatedAdd(currentExp, effectiveExperience), maxExp);
                 if (newExp != currentExp) {
                     context.beforeExperienceCommit();
-                    context.setExperience(newExp);
-                    xpCommitted = true;
+                    context.commitExperience(newExp, () -> flags.xpCommitted = true);
+                    if (!flags.xpCommitted) {
+                        throw new IllegalStateException("XP commit did not report its point of no return");
+                    }
                     xpChanged = true;
                     context.afterExperienceCommit();
                 }
@@ -146,23 +150,29 @@ final class LootCommitTransaction {
                     itemsToAdd = context.limitToAvailableSlots(itemsToAdd);
                 }
                 if (!itemsToAdd.isEmpty()) {
-                    context.insertItems(itemsToAdd);
-                    itemsInserted = true;
+                    context.insertItems(itemsToAdd, () -> flags.itemsInserted = true);
+                    if (!flags.itemsInserted) {
+                        throw new IllegalStateException("Inventory commit did not report its point of no return");
+                    }
                     context.afterInternalInsertion();
                 }
             }
 
-            boolean advanceCycle = xpChanged || itemsInserted || externallyConsumed || routeAttempted;
+            boolean advanceCycle = xpChanged || flags.itemsInserted || externallyConsumed || routeAttempted;
             if (!advanceCycle) {
                 if (pending.hasClaim()) {
                     context.releasePending();
                     pendingFinalized = true;
                 }
+                preserveOwnedGeneratedBatchIfNeeded(
+                        context,
+                        generatedInputItems,
+                        generatedInputExperience);
                 return Result.NOOP;
             }
 
             context.setLastSpawnTime(context.spawnTime());
-            timerAdvanced = true;
+            flags.timerAdvanced = true;
             context.afterTimerAdvance();
 
             if (pending.hasClaim()) {
@@ -184,9 +194,9 @@ final class LootCommitTransaction {
                     pendingFinalized,
                     routeAttempted,
                     existingRouteCompletedInput,
-                    xpCommitted,
-                    itemsInserted,
-                    timerAdvanced,
+                    flags,
+                    generatedInputItems,
+                    generatedInputExperience,
                     itemsForInternalCommit,
                     effectiveExperience);
             throw t;
@@ -195,24 +205,29 @@ final class LootCommitTransaction {
 
     private static void recoverPendingClaim(Context context, PendingInput pending, boolean pendingFinalized,
                                             boolean routeAttempted, boolean existingRouteCompletedInput,
-                                            boolean xpCommitted, boolean itemsInserted, boolean timerAdvanced,
+                                            CommitFlags flags, List<ItemStack> generatedInputItems,
+                                            long generatedInputExperience,
                                             List<ItemStack> itemsForInternalCommit, long effectiveExperience) {
-        boolean irreversible = routeAttempted || xpCommitted || itemsInserted || timerAdvanced;
+        boolean irreversible = routeAttempted || flags.xpCommitted || flags.itemsInserted || flags.timerAdvanced;
         if (!irreversible) {
             if (pending.hasClaim() && !pendingFinalized) {
                 context.releasePending();
             }
+            preserveOwnedGeneratedBatchIfNeeded(
+                    context,
+                    generatedInputItems,
+                    generatedInputExperience);
             return;
         }
 
-        if (itemsInserted || timerAdvanced) {
+        if (flags.itemsInserted || flags.timerAdvanced) {
             if (pending.hasClaim() && !pendingFinalized) {
                 context.acknowledgePending();
             }
             return;
         }
 
-        long recoveryExperience = xpCommitted ? 0L : effectiveExperience;
+        long recoveryExperience = flags.xpCommitted ? 0L : effectiveExperience;
         boolean routeCompletedRecovery = routeAttempted || existingRouteCompletedInput;
 
         if (pending.hasClaim() && !pendingFinalized) {
@@ -226,9 +241,26 @@ final class LootCommitTransaction {
 
         if (routeCompletedRecovery) {
             context.queueRouteCompleted(itemsForInternalCommit, recoveryExperience);
-        } else if (xpCommitted) {
+        } else if (flags.xpCommitted) {
             context.queueUnrouted(itemsForInternalCommit, recoveryExperience);
         }
+    }
+
+    private static void preserveOwnedGeneratedBatchIfNeeded(Context context, List<ItemStack> generatedInputItems,
+                                                            long generatedInputExperience) {
+        if (!context.ownsGeneratedBatchForRetry()) {
+            return;
+        }
+        if (generatedInputItems.isEmpty() && generatedInputExperience <= 0L) {
+            return;
+        }
+        context.queueUnrouted(generatedInputItems, generatedInputExperience);
+    }
+
+    private static final class CommitFlags {
+        private boolean xpCommitted;
+        private boolean itemsInserted;
+        private boolean timerAdvanced;
     }
 
     private static List<ItemStack> deepCloneItems(List<ItemStack> items) {

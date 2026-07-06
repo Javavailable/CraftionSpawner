@@ -142,48 +142,61 @@ public class SpawnerOutputRoutingService {
                 warn(entry.getKey(), "returned null");
                 continue;
             }
-            List<ItemStack> returned = result.getRemainingItems();
-            if (returned == null) {
-                warn(entry.getKey(), "returned a null remaining list");
-                continue;
-            }
 
-            // Defensive validation against the input batch (multiset by item signature).
-            Map<ItemSignature, Long> inputCounts = countBySignature(remaining);
-            Map<ItemSignature, Long> outputCounts = new HashMap<>();
-            boolean valid = true;
-            for (ItemStack item : returned) {
-                if (item == null || item.getType() == Material.AIR || item.getAmount() <= 0) {
-                    warn(entry.getKey(), "returned a null, AIR, or non-positive item");
-                    valid = false;
-                    break;
+            try {
+                List<ItemStack> returned = result.getRemainingItems();
+                if (returned == null) {
+                    warn(entry.getKey(), "returned a null remaining list");
+                    continue;
                 }
-                ItemSignature sig = VirtualInventory.getSignature(item);
-                if (!inputCounts.containsKey(sig)) {
-                    warn(entry.getKey(), "returned an item type/meta not present in its input");
-                    valid = false;
-                    break;
-                }
-                outputCounts.merge(sig, (long) item.getAmount(), Long::sum);
-            }
-            if (valid) {
-                for (Map.Entry<ItemSignature, Long> e : outputCounts.entrySet()) {
-                    if (e.getValue() > inputCounts.getOrDefault(e.getKey(), 0L)) {
-                        warn(entry.getKey(), "returned a greater quantity than it received");
+
+                // Defensive validation against the input batch (multiset by item signature).
+                Map<ItemSignature, Long> inputCounts = countBySignature(remaining);
+                Map<ItemSignature, Long> outputCounts = new HashMap<>();
+                boolean valid = true;
+                for (ItemStack item : returned) {
+                    if (item == null || item.getType() == Material.AIR || item.getAmount() <= 0) {
+                        warn(entry.getKey(), "returned a null, AIR, or non-positive item");
                         valid = false;
                         break;
                     }
+                    ItemSignature sig = VirtualInventory.getSignature(item);
+                    if (!inputCounts.containsKey(sig)) {
+                        warn(entry.getKey(), "returned an item type/meta not present in its input");
+                        valid = false;
+                        break;
+                    }
+                    outputCounts.merge(sig, (long) item.getAmount(), Long::sum);
                 }
-            }
-            if (!valid) {
-                continue; // fail-open: keep full current remainder
-            }
+                if (valid) {
+                    for (Map.Entry<ItemSignature, Long> e : outputCounts.entrySet()) {
+                        if (e.getValue() > inputCounts.getOrDefault(e.getKey(), 0L)) {
+                            warn(entry.getKey(), "returned a greater quantity than it received");
+                            valid = false;
+                            break;
+                        }
+                    }
+                }
+                if (!valid) {
+                    continue; // fail-open: keep full current remainder
+                }
 
-            // Accept the router's decision; adopt an owned deep clone of the remainder.
-            remaining = deepClone(returned);
+                // Accept the router's decision; adopt an owned deep clone of the remainder.
+                remaining = deepClone(returned);
+            } catch (Throwable t) {
+                warn(entry.getKey(), "returned an invalid result ("
+                        + t.getClass().getSimpleName() + ": " + t.getMessage() + ")");
+                continue; // fail-open after attempted router invocation: keep current remainder
+            }
         }
 
-        boolean consumedAny = totalQuantity(remaining) < originalTotal;
+        boolean consumedAny = false;
+        try {
+            consumedAny = totalQuantity(remaining) < originalTotal;
+        } catch (Throwable ignored) {
+            // An exception here would be after a router-attempt boundary. Preserve the current
+            // remainder and keep attempted=true rather than allowing the caller to replay routers.
+        }
         return new RoutingOutcome(remaining, consumedAny, attempted);
     }
 

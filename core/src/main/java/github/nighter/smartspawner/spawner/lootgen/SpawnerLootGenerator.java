@@ -130,7 +130,7 @@ public class SpawnerLootGenerator {
                     try {
                         // Normal path regenerates a fresh batch next cycle, so a transient lock
                         // failure simply skips this cycle (no double-routing risk).
-                        commitGeneratedLoot(spawner, loot.items(), loot.experience(), spawnTime);
+                        commitGeneratedLoot(spawner, loot.items(), loot.experience(), spawnTime, false);
                     } finally {
                         spawner.getLootGenerationLock().unlock();
                     }
@@ -361,7 +361,8 @@ public class SpawnerLootGenerator {
      * <p>The shared location lock serializes this entire commit against Skyllia cleanup and
      * ordinary/API/physical removal, preventing the spawner from being detached mid-commit.
      */
-    private CommitStatus commitGeneratedLoot(SpawnerData spawner, List<ItemStack> generatedItems, long experience, long spawnTime) {
+    private CommitStatus commitGeneratedLoot(SpawnerData spawner, List<ItemStack> generatedItems,
+                                             long experience, long spawnTime, boolean ownsGeneratedBatchForRetry) {
         Location loc = spawner.getSpawnerLocation();
         if (loc == null) {
             spawner.resetGeneratedLootState();
@@ -401,6 +402,7 @@ public class SpawnerLootGenerator {
                 // pending entries remain in SpawnerData until this commit returns COMMITTED.
                 pendingClaim = spawner.claimPendingCommitBatches();
                 SpawnerData.PendingCommitClaim claim = pendingClaim;
+                final boolean[] sellValueRefreshNeeded = {false};
                 LootCommitTransaction.Result result = LootCommitTransaction.execute(new LootCommitTransaction.Context() {
                     @Override
                     public LootCommitTransaction.PendingInput pendingInput() {
@@ -422,6 +424,11 @@ public class SpawnerLootGenerator {
                     @Override
                     public long generatedExperience() {
                         return experience;
+                    }
+
+                    @Override
+                    public boolean ownsGeneratedBatchForRetry() {
+                        return ownsGeneratedBatchForRetry;
                     }
 
                     @Override
@@ -450,8 +457,9 @@ public class SpawnerLootGenerator {
                     }
 
                     @Override
-                    public void setExperience(long experience) {
-                        spawner.setSpawnerExp(experience);
+                    public void commitExperience(long experience, Runnable pointOfNoReturn) {
+                        spawner.setSpawnerExpData(experience);
+                        pointOfNoReturn.run();
                     }
 
                     @Override
@@ -475,10 +483,13 @@ public class SpawnerLootGenerator {
                     }
 
                     @Override
-                    public void insertItems(List<ItemStack> items) {
-                        // Caller already holds inventoryLock; use the locked variant to avoid the
-                        // blocking lock() call inside addItemsAndUpdateSellValue.
-                        spawner.addItemsAndUpdateSellValueWhileLocked(items);
+                    public void insertItems(List<ItemStack> items, Runnable pointOfNoReturn) {
+                        // Caller already holds inventoryLock; source-of-truth insertion is
+                        // separated from fallible sell-value/cache refresh work so the inventory
+                        // point of no return is explicit.
+                        spawner.addItemsToVirtualInventoryWhileLocked(items);
+                        sellValueRefreshNeeded[0] = true;
+                        pointOfNoReturn.run();
                     }
 
                     @Override
@@ -518,7 +529,11 @@ public class SpawnerLootGenerator {
 
                     @Override
                     public void afterCommitted() {
+                        if (sellValueRefreshNeeded[0]) {
+                            runPostCommitStep(spawner, "sell-value refresh", spawner::recalculateSellValue);
+                        }
                         runPostCommitStep(spawner, "capacity refresh", spawner::updateCapacityStatus);
+                        runPostCommitStep(spawner, "XP cache invalidation", () -> invalidateSpawnerCaches(spawner));
                         runPostCommitStep(spawner, "GUI/hologram update", () -> handleGuiUpdates(spawner));
                         runPostCommitStep(spawner, "persistence dirty marking",
                                 () -> spawnerManager.markSpawnerModified(spawner.getSpawnerId()));
@@ -580,6 +595,15 @@ public class SpawnerLootGenerator {
         } catch (Throwable throwable) {
             plugin.getLogger().warning("Post-commit " + step + " failed for spawner "
                     + spawner.getSpawnerId() + ": " + throwable.getMessage());
+        }
+    }
+
+    private void invalidateSpawnerCaches(SpawnerData spawner) {
+        if (plugin.getSpawnerMenuUI() != null) {
+            plugin.getSpawnerMenuUI().invalidateSpawnerCache(spawner.getSpawnerId());
+        }
+        if (plugin.getSpawnerMenuFormUI() != null) {
+            plugin.getSpawnerMenuFormUI().invalidateSpawnerCache(spawner.getSpawnerId());
         }
     }
 
@@ -708,7 +732,7 @@ public class SpawnerLootGenerator {
             }
             CommitStatus status;
             try {
-                status = commitGeneratedLoot(spawner, ownedItems, experience, spawnTime);
+                status = commitGeneratedLoot(spawner, ownedItems, experience, spawnTime, true);
             } finally {
                 spawner.getLootGenerationLock().unlock();
             }

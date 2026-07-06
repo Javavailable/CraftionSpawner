@@ -368,7 +368,7 @@ public class SpawnerData {
     }
 
     public void setSpawnerExpData(long exp) {
-        this.spawnerExp = Math.max(0L, exp);
+        this.spawnerExp = Math.clamp(exp, 0L, maxStoredExp);
     }
 
     public void setBaseMaxStoredExp(long baseMaxStoredExp) {
@@ -821,6 +821,35 @@ public class SpawnerData {
             Map<String, Double> priceCache = createPriceCache();
             incrementSellValue(itemsToAdd, priceCache);
         }
+    }
+
+    /**
+     * Adds items to the source-of-truth virtual inventory while the caller already owns
+     * {@link #inventoryLock}. This method intentionally avoids sell-value/cache updates so the
+     * generation commit can mark the exact inventory point of no return immediately after
+     * {@link VirtualInventory#addItems(List)} completes. Sell value is marked dirty before the
+     * mutation and can be recalculated later as guarded post-commit work.
+     *
+     * @param items Items to add
+     */
+    public void addItemsToVirtualInventoryWhileLocked(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        if (!inventoryLock.isHeldByCurrentThread()) {
+            throw new IllegalStateException(
+                    "addItemsToVirtualInventoryWhileLocked requires the caller to hold inventoryLock");
+        }
+
+        // Surface signature/meta failures before the source-of-truth inventory is mutated.
+        for (ItemStack item : items) {
+            if (item != null && item.getAmount() > 0) {
+                VirtualInventory.getSignature(item);
+            }
+        }
+
+        sellValueDirty = true;
+        virtualInventory.addItems(items);
     }
 
     /**

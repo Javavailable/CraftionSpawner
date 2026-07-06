@@ -79,10 +79,48 @@ class LootCommitTransactionTest {
     }
 
     @Test
+    void xpMutationThenThrowInsideProductionBoundaryDoesNotAddXpTwice() {
+        FakeContext firstAttempt = new FakeContext();
+        firstAttempt.pending = pending(List.of(), List.of(), 10);
+        firstAttempt.routersActive = false;
+        firstAttempt.throwPoint = ThrowPoint.DURING_XP_AFTER_MUTATION;
+
+        assertThrows(InjectedFailure.class, () -> LootCommitTransaction.execute(firstAttempt));
+
+        assertEquals(10, firstAttempt.currentExperience);
+        assertTrue(firstAttempt.replacedUnrouted);
+        assertEquals(0, firstAttempt.replacementExperience);
+
+        FakeContext retry = new FakeContext();
+        retry.routersActive = false;
+        retry.currentExperience = firstAttempt.currentExperience;
+        retry.pending = pending(firstAttempt.replacementItems, List.of(), firstAttempt.replacementExperience);
+
+        LootCommitTransaction.execute(retry);
+
+        assertEquals(10, retry.currentExperience);
+    }
+
+    @Test
     void exceptionAfterInternalInsertionDoesNotInsertItemsTwice() {
         FakeContext context = new FakeContext();
         context.pending = pending(List.of(), items(4), 0);
         context.throwPoint = ThrowPoint.AFTER_INSERT;
+
+        assertThrows(InjectedFailure.class, () -> LootCommitTransaction.execute(context));
+
+        assertEquals(4, context.insertedAmount);
+        assertTrue(context.acknowledged);
+        assertFalse(context.released);
+        assertFalse(context.replacedRouteCompleted);
+        assertFalse(context.replacedUnrouted);
+    }
+
+    @Test
+    void inventoryMutationThenThrowInsideProductionBoundaryDoesNotInsertItemsTwice() {
+        FakeContext context = new FakeContext();
+        context.pending = pending(List.of(), items(4), 0);
+        context.throwPoint = ThrowPoint.DURING_INSERT_AFTER_MUTATION;
 
         assertThrows(InjectedFailure.class, () -> LootCommitTransaction.execute(context));
 
@@ -124,6 +162,60 @@ class LootCommitTransactionTest {
         assertFalse(context.replacedUnrouted);
     }
 
+    @Test
+    void claimlessOwnedPreGeneratedNoopRemainsQueued() {
+        FakeContext context = new FakeContext();
+        context.routersActive = false;
+        context.generatedBatchRetryable = true;
+        context.generatedItems = items(3);
+        context.generatedExperience = 10;
+        context.currentExperience = 1000L;
+        context.maxExperience = 1000L;
+        context.usedSlots = 64;
+        context.maxSlots = 64;
+
+        LootCommitTransaction.Result result = LootCommitTransaction.execute(context);
+
+        assertEquals(LootCommitTransaction.Result.NOOP, result);
+        assertTrue(context.queuedUnrouted);
+        assertEquals(3, totalAmount(context.queuedItems));
+        assertEquals(10, context.queuedExperience);
+    }
+
+    @Test
+    void claimlessOwnedPreGeneratedPreRouterExceptionRemainsQueued() {
+        FakeContext context = new FakeContext();
+        context.generatedBatchRetryable = true;
+        context.generatedItems = items(3);
+        context.generatedExperience = 10;
+        context.throwPoint = ThrowPoint.BEFORE_ROUTER;
+
+        assertThrows(InjectedFailure.class, () -> LootCommitTransaction.execute(context));
+
+        assertTrue(context.queuedUnrouted);
+        assertEquals(3, totalAmount(context.queuedItems));
+        assertEquals(10, context.queuedExperience);
+    }
+
+    @Test
+    void normalDisposableGenerationNoopIsNotQueued() {
+        FakeContext context = new FakeContext();
+        context.routersActive = false;
+        context.generatedBatchRetryable = false;
+        context.generatedItems = items(3);
+        context.generatedExperience = 10;
+        context.currentExperience = 1000L;
+        context.maxExperience = 1000L;
+        context.usedSlots = 64;
+        context.maxSlots = 64;
+
+        LootCommitTransaction.Result result = LootCommitTransaction.execute(context);
+
+        assertEquals(LootCommitTransaction.Result.NOOP, result);
+        assertFalse(context.queuedUnrouted);
+        assertFalse(context.replacedUnrouted);
+    }
+
     private static LootCommitTransaction.PendingInput pending(List<ItemStack> unrouted,
                                                               List<ItemStack> routeCompleted,
                                                               long experience) {
@@ -147,7 +239,9 @@ class LootCommitTransactionTest {
         BEFORE_ROUTER,
         AFTER_ROUTER,
         BEFORE_XP,
+        DURING_XP_AFTER_MUTATION,
         AFTER_XP,
+        DURING_INSERT_AFTER_MUTATION,
         AFTER_INSERT,
         AFTER_COMMIT
     }
@@ -157,8 +251,11 @@ class LootCommitTransactionTest {
         private List<ItemStack> generatedItems = List.of();
         private List<ItemStack> routerRemainder = List.of();
         private long generatedExperience;
+        private boolean generatedBatchRetryable;
         private long currentExperience;
         private long maxExperience = 1000L;
+        private int usedSlots;
+        private int maxSlots = 64;
         private boolean routersActive = true;
         private ThrowPoint throwPoint = ThrowPoint.NONE;
         private int routerCalls;
@@ -169,6 +266,10 @@ class LootCommitTransactionTest {
         private boolean replacedUnrouted;
         private List<ItemStack> replacementItems = List.of();
         private long replacementExperience;
+        private boolean queuedRouteCompleted;
+        private boolean queuedUnrouted;
+        private List<ItemStack> queuedItems = List.of();
+        private long queuedExperience;
         private boolean postCommitFailureHandled;
 
         @Override
@@ -184,6 +285,11 @@ class LootCommitTransactionTest {
         @Override
         public long generatedExperience() {
             return generatedExperience;
+        }
+
+        @Override
+        public boolean ownsGeneratedBatchForRetry() {
+            return generatedBatchRetryable;
         }
 
         @Override
@@ -216,18 +322,20 @@ class LootCommitTransactionTest {
         }
 
         @Override
-        public void setExperience(long experience) {
+        public void commitExperience(long experience, Runnable pointOfNoReturn) {
             currentExperience = experience;
+            pointOfNoReturn.run();
+            throwIf(ThrowPoint.DURING_XP_AFTER_MUTATION);
         }
 
         @Override
         public int usedSlots() {
-            return insertedAmount == 0 ? 0 : 1;
+            return usedSlots;
         }
 
         @Override
         public int maxSlots() {
-            return 64;
+            return maxSlots;
         }
 
         @Override
@@ -241,8 +349,10 @@ class LootCommitTransactionTest {
         }
 
         @Override
-        public void insertItems(List<ItemStack> items) {
+        public void insertItems(List<ItemStack> items, Runnable pointOfNoReturn) {
             insertedAmount += totalAmount(items);
+            pointOfNoReturn.run();
+            throwIf(ThrowPoint.DURING_INSERT_AFTER_MUTATION);
         }
 
         @Override
@@ -275,12 +385,16 @@ class LootCommitTransactionTest {
 
         @Override
         public void queueUnrouted(List<ItemStack> items, long experience) {
-            replacePendingWithUnrouted(items, experience);
+            queuedUnrouted = true;
+            queuedItems = deepClone(items);
+            queuedExperience = experience;
         }
 
         @Override
         public void queueRouteCompleted(List<ItemStack> items, long experience) {
-            replacePendingWithRouteCompleted(items, experience);
+            queuedRouteCompleted = true;
+            queuedItems = deepClone(items);
+            queuedExperience = experience;
         }
 
         @Override
